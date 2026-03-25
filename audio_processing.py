@@ -1,10 +1,8 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import importlib.util
 import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -39,6 +37,14 @@ except Exception as exc:  # pragma: no cover - dependency dependent
     SOUND_FILE_IMPORT_ERROR = str(exc)
 else:
     SOUND_FILE_IMPORT_ERROR = None
+
+try:
+    import torch as th
+except Exception as exc:  # pragma: no cover - dependency dependent
+    th = None
+    TORCH_IMPORT_ERROR = str(exc)
+else:
+    TORCH_IMPORT_ERROR = None
 
 from models import SongRecord
 from utils import (
@@ -135,10 +141,12 @@ def action_runtime_issues(action: str, file_paths: Optional[list[str]] = None) -
             issues.append("Demucs is not installed.")
         if not report["torch"]["available"]:
             issues.append("PyTorch is required for stem separation.")
-        if not report["torchaudio"]["available"]:
-            issues.append("torchaudio is required for stem separation.")
-        if not report["torchcodec"]["available"]:
-            issues.append("torchcodec is required by the current Demucs/torchaudio runtime.")
+        if not report["numpy"]["available"]:
+            issues.append("NumPy is required for stem separation.")
+        if not report["librosa"]["available"]:
+            issues.append("librosa is required for stem separation.")
+        if not report["soundfile"]["available"]:
+            issues.append("soundfile is required to write separated stems.")
 
     if action in ANALYSIS_ACTIONS and _file_paths_need_ffmpeg(file_paths) and not report["ffmpeg"]["available"]:
         issues.append("ffmpeg is required to decode mp3 and m4a files.")
@@ -177,6 +185,12 @@ def _require_audio_write_stack() -> None:
     if sf is None:
         detail = f": {SOUND_FILE_IMPORT_ERROR}" if SOUND_FILE_IMPORT_ERROR else ""
         raise DependencyError(f"soundfile is not available{detail}")
+
+
+def _require_torch_stack() -> None:
+    if th is None:
+        detail = f": {TORCH_IMPORT_ERROR}" if TORCH_IMPORT_ERROR else ""
+        raise DependencyError(f"PyTorch is not available{detail}")
 
 
 def _require_decode_support(file_path: str) -> None:
@@ -241,6 +255,111 @@ def _load_audio_for_processing(file_path: str) -> tuple["np.ndarray", int]:
     _require_decode_support(file_path)
     audio, sample_rate = librosa.load(file_path, sr=None, mono=False)
     return np.asarray(audio, dtype=np.float32), sample_rate
+
+
+def _prepare_audio_channels(audio: "np.ndarray", target_channels: int) -> "np.ndarray":
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.ndim == 1:
+        audio = np.expand_dims(audio, axis=0)
+
+    if audio.shape[0] == target_channels:
+        return audio
+    if target_channels == 1:
+        return np.mean(audio, axis=0, keepdims=True, dtype=np.float32)
+    if audio.shape[0] == 1:
+        return np.repeat(audio, target_channels, axis=0).astype(np.float32)
+    if audio.shape[0] > target_channels:
+        return audio[:target_channels].astype(np.float32)
+
+    repeats = int(np.ceil(target_channels / audio.shape[0]))
+    tiled = np.tile(audio, (repeats, 1))
+    return tiled[:target_channels].astype(np.float32)
+
+
+@lru_cache(maxsize=2)
+def _load_demucs_model(model_name: str = "htdemucs"):
+    _require_torch_stack()
+    if importlib.util.find_spec("demucs") is None:
+        raise DependencyError("Demucs is not installed.")
+
+    try:
+        from demucs.pretrained import get_model
+    except Exception as exc:  # pragma: no cover - dependency dependent
+        raise DependencyError(f"Could not import Demucs pretrained loader: {exc}") from exc
+
+    try:
+        model = get_model(model_name)
+    except Exception as exc:
+        raise AudioProcessingError(
+            f"Could not load the Demucs model `{model_name}`. Ensure the model files are available. {exc}"
+        ) from exc
+
+    model.cpu()
+    model.eval()
+    return model
+
+
+def _run_demucs_in_process(
+    file_path: str,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+    model_name: str = "htdemucs",
+) -> tuple[dict[str, "np.ndarray"], int]:
+    _require_analysis_stack()
+    _require_audio_write_stack()
+    _require_torch_stack()
+    _require_decode_support(file_path)
+    _check_canceled(cancel_callback)
+
+    try:
+        from demucs.apply import apply_model
+    except Exception as exc:  # pragma: no cover - dependency dependent
+        raise DependencyError(f"Could not import Demucs apply helper: {exc}") from exc
+
+    model = _load_demucs_model(model_name)
+    _log(log_callback, f"Loaded Demucs model `{model_name}`.")
+    _check_canceled(cancel_callback)
+
+    audio, _ = librosa.load(file_path, sr=model.samplerate, mono=False)
+    prepared_audio = _prepare_audio_channels(audio, model.audio_channels)
+    mix = th.from_numpy(prepared_audio)
+
+    ref = mix.mean(0)
+    ref_mean = ref.mean()
+    mix = mix - ref_mean
+    ref_std = ref.std()
+    scale = float(ref_std.item()) if ref_std.numel() else 0.0
+    if scale > 1e-8:
+        mix = mix / scale
+
+    device = "cuda" if th.cuda.is_available() else "cpu"
+    _log(log_callback, f"Running Demucs on {device.upper()} for {Path(file_path).name}.")
+    sources = apply_model(
+        model,
+        mix[None],
+        device=device,
+        shifts=1,
+        split=True,
+        overlap=0.25,
+        progress=False,
+    )[0]
+
+    _check_canceled(cancel_callback)
+    if scale > 1e-8:
+        sources = sources * scale
+    sources = sources + ref_mean
+
+    source_arrays = sources.detach().cpu().numpy().astype(np.float32)
+    stems: dict[str, np.ndarray] = {}
+    for index, source_name in enumerate(model.sources):
+        stems[source_name] = source_arrays[index]
+
+    if "vocals" in stems:
+        non_vocal_names = [name for name in model.sources if name != "vocals"]
+        if non_vocal_names:
+            stems["no_vocals"] = np.sum([stems[name] for name in non_vocal_names], axis=0, dtype=np.float32)
+
+    return stems, int(model.samplerate)
 
 
 def _save_audio(output_path: str | Path, audio: "np.ndarray", sample_rate: int) -> str:
@@ -409,66 +528,31 @@ def match_song_key(
     return {"output_path": saved_path, "duration": duration, "key": resolved_key, "mode_matched": same_mode}
 
 
-def _find_stem_directory(search_root: str | Path) -> Path:
-    root = Path(search_root)
-    stem_files = ["vocals.wav", "no_vocals.wav", "drums.wav", "bass.wav", "other.wav"]
-    for stem_name in stem_files:
-        candidates = list(root.rglob(stem_name))
-        if candidates:
-            return candidates[-1].parent
-    raise AudioProcessingError("Demucs finished without producing any expected stem files.")
-
-
 def separate_song_stems(
     song: SongRecord,
     stem_option: str,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, str]:
-    issues = action_runtime_issues("separate")
+    issues = action_runtime_issues("separate", [song.file_path])
     if issues:
         raise DependencyError(" ".join(issues))
 
     stem_root = Path(make_song_cache_dir(song.file_path, song.file_name, "stems"))
     run_root = stem_root / safe_stem(stem_option.lower())
-    ensure_directory(run_root)
-
-    command = [sys.executable, "-m", "demucs.separate", "-o", str(run_root)]
-    if stem_option in {"Vocals", "Instrumental / No vocals"}:
-        command.extend(["--two-stems", "vocals"])
-    command.append(song.file_path)
+    stem_dir = run_root / safe_stem(Path(song.file_name).stem)
+    ensure_directory(stem_dir)
 
     _log(log_callback, f"Running Demucs for {song.file_name}...")
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
+    stems, sample_rate = _run_demucs_in_process(
+        song.file_path,
+        log_callback=log_callback,
+        cancel_callback=cancel_callback,
     )
 
-    try:
-        while process.poll() is None:
-            if cancel_callback and cancel_callback():
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
-                raise TaskCanceledError("Task canceled by user.")
-            time.sleep(0.25)
-        _, error_text = process.communicate()
-    except BaseException:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
-        raise
+    for stem_name, audio_data in stems.items():
+        _save_audio(stem_dir / f"{stem_name}.wav", audio_data, sample_rate)
 
-    if process.returncode != 0:
-        message = (error_text or "").strip() or "Demucs failed without an error message."
-        raise AudioProcessingError(f"Demucs failed for {song.file_name}: {message}")
-
-    stem_dir = _find_stem_directory(run_root)
     selected_files = {
         "Vocals": ["vocals.wav"],
         "Instrumental / No vocals": ["no_vocals.wav"],

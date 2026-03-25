@@ -8,7 +8,7 @@ Check the bottom log panel at startup for dependency status and disabled-feature
 
 Common examples:
 
-- `Separate Stems` disabled: `torchcodec` missing
+- `Separate Stems` disabled: Demucs or PyTorch runtime missing
 - `Process All` disabled: stem separation dependency missing
 - analyze blocked for `mp3` or `m4a`: `ffmpeg` missing
 
@@ -33,9 +33,9 @@ Fix:
 
 Cause:
 
-- missing `torchcodec`
 - missing `demucs`
 - missing Torch runtime pieces
+- missing `librosa`, `numpy`, or `soundfile` required by the in-process stem path
 
 Fix:
 
@@ -45,7 +45,7 @@ pip install -r requirements.txt
 
 Then restart the application.
 
-If the problem continues, verify in the app log that `demucs`, `torch`, `torchaudio`, and `torchcodec` are all available.
+If the problem continues, verify in the app log that `demucs`, `torch`, `librosa`, `numpy`, and `soundfile` are all available.
 
 ## Tempo or Key Matching Quality Is Poor
 

@@ -27,7 +27,7 @@ What still depends on external tools:
 
 - `mp3` and `m4a` processing requires `ffmpeg`
 - higher-quality tempo and key processing prefers `rubberband`
-- Demucs stem separation currently requires `torchcodec` in this environment
+- stem separation requires the Demucs and PyTorch runtime to be installed
 - exact major/minor mode conversion is not implemented; key matching currently pitch-shifts tonic and keeps the existing mode
 
 See [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) for more detail.

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 import soundfile as sf
+import torch as th
 
 from audio_processing import (
     action_base_requirement_message,
@@ -16,6 +17,7 @@ from audio_processing import (
     export_song_artifacts,
     match_song_key,
     match_song_tempo,
+    separate_song_stems,
 )
 from models import SongRecord
 
@@ -59,14 +61,14 @@ class AudioProcessingTests(unittest.TestCase):
         self.assertIn("ffmpeg is required to decode mp3 and m4a files.", issues)
         self.assertEqual(no_issues, [])
 
-    def test_action_base_requirement_message_includes_missing_torchcodec(self) -> None:
+    def test_action_base_requirement_message_for_separate_only_requires_demucs_stack(self) -> None:
         fake_report = {
             "librosa": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},
             "pyrubberband": {"available": True, "detail": None},
             "torch": {"available": True, "detail": None},
-            "torchaudio": {"available": True, "detail": None},
+            "torchaudio": {"available": False, "detail": None},
             "torchcodec": {"available": False, "detail": None},
             "rubberband": {"available": False, "detail": None},
             "ffmpeg": {"available": True, "detail": None},
@@ -76,8 +78,46 @@ class AudioProcessingTests(unittest.TestCase):
         with patch("audio_processing.get_dependency_report", return_value=fake_report):
             message = action_base_requirement_message("separate")
 
-        self.assertIsNotNone(message)
-        self.assertIn("torchcodec", message)
+        self.assertIsNone(message)
+
+    def test_separate_song_stems_writes_requested_stems(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            wav_path = temp_root / "tone.wav"
+            stems_root = temp_root / "stems"
+            create_test_wave(wav_path)
+
+            song = SongRecord.from_path(str(wav_path))
+            fake_sources = th.tensor(
+                [
+                    [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+                    [[0.2, 0.2, 0.2], [0.2, 0.2, 0.2]],
+                    [[0.3, 0.3, 0.3], [0.3, 0.3, 0.3]],
+                    [[0.4, 0.4, 0.4], [0.4, 0.4, 0.4]],
+                ],
+                dtype=th.float32,
+            )
+
+            class FakeModel:
+                samplerate = 44100
+                audio_channels = 2
+                sources = ["drums", "bass", "other", "vocals"]
+
+            with patch("audio_processing.make_song_cache_dir", return_value=str(stems_root)), patch(
+                "audio_processing.action_runtime_issues", return_value=[]
+            ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
+                "audio_processing.librosa.load",
+                return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
+            ), patch("audio_processing.th.cuda.is_available", return_value=False), patch(
+                "audio_processing._check_canceled"
+            ), patch("audio_processing._log"), patch(
+                "demucs.apply.apply_model", return_value=fake_sources.unsqueeze(0)
+            ):
+                result = separate_song_stems(song, "Vocals")
+
+            stem_dir = Path(result["stems_dir"])
+            self.assertTrue((stem_dir / "vocals.wav").exists())
+            self.assertFalse((stem_dir / "no_vocals.wav").exists())
 
     def test_match_tempo_key_and_export_processed_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

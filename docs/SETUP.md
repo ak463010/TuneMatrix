@@ -27,7 +27,7 @@ The current dependency list includes:
 - `soundfile`
 - `pyrubberband`
 - `demucs`
-- `torchcodec`
+- `torch`
 
 ## External Tools
 
@@ -50,14 +50,22 @@ If `rubberband` is missing:
 - the app can still fall back to `librosa` for tempo and key processing
 - quality and behavior may differ from Rubber Band
 
-### torchcodec
+### Demucs Runtime
 
-The current Demucs runtime in this environment requires `torchcodec`.
+Stem separation uses Demucs in-process.
 
-If `torchcodec` is missing:
+If the Demucs runtime is incomplete:
 
 - `Separate Stems` is disabled
 - `Process All` is disabled because it includes stem separation
+
+At minimum, make sure these Python packages are installed:
+
+- `demucs`
+- `torch`
+- `numpy`
+- `librosa`
+- `soundfile`
 
 ## Start the Application
 

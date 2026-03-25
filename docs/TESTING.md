@@ -39,7 +39,7 @@ Equivalent direct command:
 ### Audio processing tests
 
 - metadata analysis for a generated `wav`
-- dependency gating for `ffmpeg` and `torchcodec`
+- dependency gating for `ffmpeg` and the Demucs runtime
 - tempo matching
 - key shifting
 - export behavior

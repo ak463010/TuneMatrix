@@ -64,8 +64,9 @@ The code path is implemented, but actual runtime success depends on the full Dem
 
 In the current environment:
 
-- `torchcodec` is required
-- without it, stem actions are disabled
+- the old Demucs CLI path has been replaced with an in-process separation path
+- `wav` and `flac` can now be separated without relying on `torchaudio.load`
+- stem actions still require the Demucs and PyTorch runtime to be installed
 
 ### mp3 and m4a Support
 
