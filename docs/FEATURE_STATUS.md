@@ -17,6 +17,7 @@ This file describes the current implementation status against the requested feat
 ### Song Management
 
 - import multiple files
+- save and load project sessions
 - remove selected
 - clear list
 - table columns for file name, full path, duration, BPM, key, and status
@@ -43,6 +44,7 @@ This file describes the current implementation status against the requested feat
 - readable log and message-box errors
 - automated unittest suite
 - GitHub Actions test workflow
+- JSON project persistence with song metadata and UI settings
 
 ## Partially Implemented
 
@@ -77,7 +79,6 @@ So support is conditional rather than fully self-contained.
 ## Not Implemented Yet
 
 - waveform preview
-- project/session save and load
 - packaged desktop installer
 - integration tests against real Demucs output
 - exact musical reharmonization or scale-aware mode conversion
@@ -86,5 +87,5 @@ So support is conditional rather than fully self-contained.
 
 1. Add an in-app diagnostics dialog that shows install commands for missing dependencies.
 2. Add worker-level tests for cancel and multi-song flows.
-3. Add a project save/load feature if you want to manage larger sessions.
+3. Package the app for Windows once the runtime dependencies are stable.
 4. Revisit key matching if exact harmonic mode conversion is a hard requirement.

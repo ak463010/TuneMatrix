@@ -26,6 +26,12 @@ Each record stores:
 
 `ProcessingOptions` carries the current user-selected settings from the right control panel.
 
+Project sessions are stored as JSON with:
+
+- a format version
+- serialized `SongRecord` entries
+- persisted UI state such as target BPM, target key, stem option, reference song, and export folder
+
 ## UI Flow
 
 The main UI lives in `MainWindow`.
@@ -33,6 +39,7 @@ The main UI lives in `MainWindow`.
 Key responsibilities:
 
 - import and validate files
+- save and restore project state
 - maintain the in-memory song list
 - mirror song data into the table
 - collect processing options from the controls panel
@@ -65,8 +72,8 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 
 1. `MainWindow` creates `ProcessingWorker` with action `separate`
 2. worker calls `separate_song_stems`
-3. `audio_processing.py` runs Demucs through a subprocess
-4. generated stems are copied into a cache folder for the song
+3. `audio_processing.py` loads Demucs in-process and runs the model directly
+4. generated stems are written into a cache folder for the song
 
 ### Match Tempo and Match Key
 
@@ -99,6 +106,17 @@ Benefits:
 - disable unsupported actions
 - show tooltips explaining why
 - block invalid runs before worker startup
+
+## Session Persistence
+
+Project save/load is handled in `MainWindow`.
+
+The window:
+
+- collects current songs and control values into a JSON-safe dict
+- writes the session to disk
+- restores songs, table rows, and control state from a saved project
+- marks missing source files as `Error` on restore instead of silently dropping them
 
 ## Current Limitation
 

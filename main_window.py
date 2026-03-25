@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,10 @@ from audio_processing import action_base_requirement_message, action_runtime_iss
 from models import KEY_OPTIONS, ProcessingOptions, SongRecord, SongStatus, STEM_OPTIONS, TABLE_HEADERS
 from utils import default_export_dir, format_bpm, format_duration, format_key, is_supported_audio_file, validate_audio_file
 from workers import AnalyzeWorker, ProcessingWorker
+
+PROJECT_STATE_VERSION = 1
+PROJECT_FILE_SUFFIX = ".tunematrix.json"
+PROJECT_FILE_FILTER = "TuneMatrix Project (*.tunematrix.json);;JSON Files (*.json)"
 
 
 class AudioTableWidget(QTableWidget):
@@ -98,6 +103,12 @@ class MainWindow(QMainWindow):
         self._refresh_action_availability()
 
     def _create_actions(self) -> None:
+        self.open_project_action = QAction("Open Project", self)
+        self.open_project_action.triggered.connect(self.open_project)
+
+        self.save_project_action = QAction("Save Project", self)
+        self.save_project_action.triggered.connect(self.save_project)
+
         self.import_action = QAction("Import Songs", self)
         self.import_action.triggered.connect(self.import_songs)
 
@@ -131,6 +142,9 @@ class MainWindow(QMainWindow):
 
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu("File")
+        file_menu.addAction(self.open_project_action)
+        file_menu.addAction(self.save_project_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.import_action)
         file_menu.addAction(self.remove_action)
         file_menu.addAction(self.clear_action)
@@ -439,9 +453,162 @@ class MainWindow(QMainWindow):
         self.log_console.appendPlainText(f"[{timestamp}] {message}")
         self.log_console.verticalScrollBar().setValue(self.log_console.verticalScrollBar().maximum())
 
+    def _can_modify_project(self, action_description: str) -> bool:
+        if self.current_worker is None:
+            return True
+        self.show_warning(f"Cancel the current task before {action_description}.")
+        return False
+
+    def _confirm_project_replace(self) -> bool:
+        if not self.songs:
+            return True
+
+        result = QMessageBox.question(
+            self,
+            "TuneMatrix",
+            "Open a saved project and replace the current song list?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return result == QMessageBox.StandardButton.Yes
+
+    def _set_combo_data(self, combo: QComboBox, value: object) -> None:
+        index = combo.findData(value)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def collect_project_state(self) -> dict[str, object]:
+        return {
+            "format_version": PROJECT_STATE_VERSION,
+            "songs": [song.to_dict() for song in self.songs],
+            "ui": {
+                "target_bpm_text": self.target_bpm_edit.text().strip(),
+                "target_key": self.target_key_combo.currentData(),
+                "stem_option": self.stem_option_combo.currentData(),
+                "match_to_reference": self.reference_checkbox.isChecked(),
+                "reference_song_path": self.reference_combo.currentData(),
+                "output_dir": self.output_dir_edit.text().strip(),
+            },
+        }
+
+    def apply_project_state(self, state: dict[str, object]) -> None:
+        if not isinstance(state, dict):
+            raise ValueError("Project file is invalid.")
+
+        format_version = state.get("format_version", PROJECT_STATE_VERSION)
+        if not isinstance(format_version, int) or format_version > PROJECT_STATE_VERSION:
+            raise ValueError(f"Unsupported project format version: {format_version}")
+
+        songs_data = state.get("songs", [])
+        ui_state = state.get("ui", {})
+        if not isinstance(songs_data, list):
+            raise ValueError("Project file has an invalid songs list.")
+        if not isinstance(ui_state, dict):
+            raise ValueError("Project file has invalid UI settings.")
+
+        restored_songs: list[SongRecord] = []
+        missing_files: list[str] = []
+        for index, song_data in enumerate(songs_data, start=1):
+            if not isinstance(song_data, dict):
+                raise ValueError(f"Song entry {index} is invalid.")
+
+            song = SongRecord.from_dict(song_data)
+            if not song.file_path:
+                raise ValueError(f"Song entry {index} is missing a file path.")
+
+            if not Path(song.file_path).exists():
+                song.status = SongStatus.ERROR.value
+                song.last_error = f"File does not exist: {song.file_path}"
+                missing_files.append(song.file_name or song.file_path)
+
+            restored_songs.append(song)
+
+        self.songs = restored_songs
+        self.song_table.setRowCount(0)
+        for song in self.songs:
+            self._append_song_row(song)
+
+        self.target_bpm_edit.setText(str(ui_state.get("target_bpm_text") or ""))
+        self._set_combo_data(self.target_key_combo, ui_state.get("target_key"))
+        self._set_combo_data(self.stem_option_combo, ui_state.get("stem_option"))
+        self.reference_checkbox.setChecked(bool(ui_state.get("match_to_reference", False)))
+        if "output_dir" in ui_state:
+            self.output_dir_edit.setText(str(ui_state.get("output_dir") or ""))
+        else:
+            self.output_dir_edit.setText(default_export_dir())
+
+        self.refresh_reference_combo()
+        reference_song_path = ui_state.get("reference_song_path")
+        self._set_combo_data(self.reference_combo, reference_song_path)
+        if reference_song_path and self.reference_combo.currentData() != reference_song_path:
+            self.append_log("Saved reference song was not found in the restored project.")
+
+        self.progress_bar.setValue(0)
+        self._refresh_action_availability()
+        self.append_log(f"Loaded project with {len(self.songs)} song(s).")
+        for file_name in missing_files:
+            self.append_log(f"{file_name}: file not found on disk.")
+
+    def _normalize_project_save_path(self, file_path: str) -> str:
+        path = Path(file_path)
+        if path.suffix.lower() != ".json":
+            return str(path.with_name(f"{path.name}{PROJECT_FILE_SUFFIX}"))
+        return str(path)
+
+    def _save_project_to_path(self, file_path: str) -> None:
+        target_path = Path(self._normalize_project_save_path(file_path))
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open("w", encoding="utf-8") as handle:
+            json.dump(self.collect_project_state(), handle, indent=2)
+        self.append_log(f"Saved project to {target_path}")
+
+    def save_project(self) -> None:
+        if not self._can_modify_project("saving the project"):
+            return
+
+        suggested_path = Path.cwd() / f"project{PROJECT_FILE_SUFFIX}"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Project",
+            str(suggested_path),
+            PROJECT_FILE_FILTER,
+        )
+        if not file_path:
+            return
+
+        try:
+            self._save_project_to_path(file_path)
+        except OSError as exc:
+            self.show_error(f"Could not save the project:\n\n{exc}")
+
+    def _load_project_from_path(self, file_path: str) -> None:
+        with Path(file_path).open("r", encoding="utf-8") as handle:
+            state = json.load(handle)
+
+        self.apply_project_state(state)
+        self.append_log(f"Opened project file {file_path}")
+
+    def open_project(self) -> None:
+        if not self._can_modify_project("opening a project"):
+            return
+        if not self._confirm_project_replace():
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Project",
+            str(Path.cwd()),
+            PROJECT_FILE_FILTER,
+        )
+        if not file_path:
+            return
+
+        try:
+            self._load_project_from_path(file_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            self.show_error(f"Could not open the project:\n\n{exc}")
+
     def import_songs(self, paths: Optional[list[str]] = None) -> None:
-        if self.current_worker is not None:
-            self.show_warning("A task is running. Import new songs after it finishes or cancel it first.")
+        if not self._can_modify_project("importing songs"):
             return
 
         if not isinstance(paths, list):
@@ -482,8 +649,7 @@ class MainWindow(QMainWindow):
             self.refresh_reference_combo()
 
     def remove_selected_songs(self) -> None:
-        if self.current_worker is not None:
-            self.show_warning("Cancel the current task before modifying the song list.")
+        if not self._can_modify_project("removing songs"):
             return
 
         rows = self.selected_rows()
@@ -499,8 +665,7 @@ class MainWindow(QMainWindow):
         self.refresh_reference_combo()
 
     def clear_songs(self) -> None:
-        if self.current_worker is not None:
-            self.show_warning("Cancel the current task before clearing the song list.")
+        if not self._can_modify_project("clearing the song list"):
             return
 
         if not self.songs:
@@ -681,9 +846,18 @@ class MainWindow(QMainWindow):
 
     def set_task_running(self, running: bool) -> None:
         always_available_controls = [
+            self.open_project_action,
+            self.save_project_action,
             self.import_button,
             self.remove_button,
             self.clear_button,
+            self.reference_checkbox,
+            self.reference_combo,
+            self.target_bpm_edit,
+            self.target_key_combo,
+            self.stem_option_combo,
+            self.output_dir_edit,
+            self.output_browse_button,
             self.import_action,
             self.remove_action,
             self.clear_action,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 TABLE_HEADERS = [
     "File name",
@@ -81,6 +81,35 @@ class SongRecord:
     def from_path(cls, file_path: str) -> "SongRecord":
         path = Path(file_path)
         return cls(file_path=str(path), file_name=path.name)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file_path": self.file_path,
+            "file_name": self.file_name,
+            "duration": self.duration,
+            "bpm": self.bpm,
+            "musical_key": self.musical_key,
+            "status": self.status,
+            "stems_dir": self.stems_dir,
+            "processed_path": self.processed_path,
+            "last_error": self.last_error,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SongRecord":
+        file_path = str(data.get("file_path", "")).strip()
+        file_name = str(data.get("file_name", "")).strip() or Path(file_path).name
+        return cls(
+            file_path=file_path,
+            file_name=file_name,
+            duration=data.get("duration"),
+            bpm=data.get("bpm"),
+            musical_key=data.get("musical_key"),
+            status=str(data.get("status") or SongStatus.IMPORTED.value),
+            stems_dir=data.get("stems_dir"),
+            processed_path=data.get("processed_path"),
+            last_error=data.get("last_error"),
+        )
 
 
 @dataclass

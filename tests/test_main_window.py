@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from main_window import MainWindow
+from main_window import MainWindow, PROJECT_STATE_VERSION
 
 
 class MainWindowTests(unittest.TestCase):
@@ -81,6 +81,105 @@ class MainWindowTests(unittest.TestCase):
 
         show_warning.assert_called_once()
         self.assertIsNone(window.current_worker)
+
+    def test_collect_project_state_serializes_songs_and_ui(self) -> None:
+        window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "demo.wav"
+            wav_path.write_bytes(b"test")
+            window.import_songs([str(wav_path)])
+
+        window.target_bpm_edit.setText("126")
+        window.target_key_combo.setCurrentText("A Minor")
+        window.stem_option_combo.setCurrentText("Vocals")
+        window.reference_checkbox.setChecked(True)
+        window.reference_combo.setCurrentIndex(1)
+        window.output_dir_edit.setText("C:/exports")
+
+        state = window.collect_project_state()
+
+        self.assertEqual(state["format_version"], PROJECT_STATE_VERSION)
+        self.assertEqual(len(state["songs"]), 1)
+        self.assertEqual(state["songs"][0]["file_name"], "demo.wav")
+        self.assertEqual(state["ui"]["target_bpm_text"], "126")
+        self.assertEqual(state["ui"]["target_key"], "A Minor")
+        self.assertEqual(state["ui"]["stem_option"], "Vocals")
+        self.assertTrue(state["ui"]["match_to_reference"])
+        self.assertEqual(state["ui"]["reference_song_path"], str(wav_path.resolve()))
+        self.assertEqual(state["ui"]["output_dir"], "C:/exports")
+
+    def test_apply_project_state_restores_songs_and_controls(self) -> None:
+        window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "restored.wav"
+            wav_path.write_bytes(b"test")
+
+            window.apply_project_state(
+                {
+                    "format_version": PROJECT_STATE_VERSION,
+                    "songs": [
+                        {
+                            "file_path": str(wav_path),
+                            "file_name": "restored.wav",
+                            "duration": 91.2,
+                            "bpm": 128.0,
+                            "musical_key": "C Minor",
+                            "status": "Analyzed",
+                            "stems_dir": None,
+                            "processed_path": None,
+                            "last_error": None,
+                        }
+                    ],
+                    "ui": {
+                        "target_bpm_text": "128",
+                        "target_key": "C Minor",
+                        "stem_option": "Bass",
+                        "match_to_reference": True,
+                        "reference_song_path": str(wav_path),
+                        "output_dir": "D:/processed",
+                    },
+                }
+            )
+
+        self.assertEqual(len(window.songs), 1)
+        self.assertEqual(window.song_table.rowCount(), 1)
+        self.assertEqual(window.song_table.item(0, 0).text(), "restored.wav")
+        self.assertEqual(window.target_bpm_edit.text(), "128")
+        self.assertEqual(window.target_key_combo.currentData(), "C Minor")
+        self.assertEqual(window.stem_option_combo.currentData(), "Bass")
+        self.assertTrue(window.reference_checkbox.isChecked())
+        self.assertEqual(window.reference_combo.currentData(), str(wav_path))
+        self.assertEqual(window.output_dir_edit.text(), "D:/processed")
+
+    def test_project_save_and_load_round_trip(self) -> None:
+        source_window = self._build_window()
+        restored_window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "roundtrip.wav"
+            project_path = Path(temp_dir) / "session.tunematrix.json"
+            wav_path.write_bytes(b"test")
+
+            source_window.import_songs([str(wav_path)])
+            source_window.target_bpm_edit.setText("110")
+            source_window.target_key_combo.setCurrentText("G Major")
+            source_window.stem_option_combo.setCurrentText("Drums")
+            source_window.reference_combo.setCurrentIndex(1)
+            source_window.reference_checkbox.setChecked(True)
+            source_window.output_dir_edit.setText(str(Path(temp_dir) / "exports"))
+
+            source_window._save_project_to_path(str(project_path))
+            restored_window._load_project_from_path(str(project_path))
+
+        self.assertEqual(len(restored_window.songs), 1)
+        self.assertEqual(restored_window.songs[0].file_name, "roundtrip.wav")
+        self.assertEqual(restored_window.target_bpm_edit.text(), "110")
+        self.assertEqual(restored_window.target_key_combo.currentData(), "G Major")
+        self.assertEqual(restored_window.stem_option_combo.currentData(), "Drums")
+        self.assertTrue(restored_window.reference_checkbox.isChecked())
+        self.assertEqual(restored_window.reference_combo.currentData(), str(wav_path.resolve()))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ TuneMatrix is a desktop music-processing application built with Python and PySid
 The current codebase focuses on:
 
 - importing multiple songs
+- saving and loading project sessions
 - analyzing duration, BPM, and rough key
 - separating stems with Demucs
 - matching tempo
@@ -20,6 +21,7 @@ What works now:
 
 - `wav` and `flac` import and analysis
 - worker-threaded analyze, tempo match, key shift, and export flows
+- project save/load with song state and control settings persisted to JSON
 - dependency-aware UI gating for unsupported actions
 - local test suite and CI workflow
 
