@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTableWidget,
@@ -177,20 +178,35 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
 
+        controls_panel = self._build_controls_panel()
+        controls_panel.setMinimumWidth(320)
+        controls_panel.setMaximumWidth(360)
+
+        controls_scroll = QScrollArea()
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        controls_scroll.setWidget(controls_panel)
+        controls_scroll.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+
         splitter.addWidget(self.song_table)
-        splitter.addWidget(self._build_controls_panel())
-        splitter.setSizes([980, 360])
+        splitter.addWidget(controls_scroll)
+        splitter.setChildrenCollapsible(False)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([1180, 320])
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("%p%")
+        self.progress_bar.setFixedHeight(32)
         main_layout.addWidget(self.progress_bar)
 
         self.log_console = QPlainTextEdit()
         self.log_console.setReadOnly(True)
         self.log_console.setPlaceholderText("Processing logs will appear here.")
-        main_layout.addWidget(self.log_console, 1)
+        self.log_console.setFixedHeight(170)
+        main_layout.addWidget(self.log_console, 0)
 
     def _build_controls_panel(self) -> QWidget:
         panel = QWidget()
@@ -200,6 +216,7 @@ class MainWindow(QMainWindow):
         import_group = QGroupBox("Song Actions")
         import_layout = QVBoxLayout(import_group)
         import_layout.setSpacing(8)
+        import_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         self.import_button = QPushButton("Import Songs")
         self.remove_button = QPushButton("Remove Selected")
@@ -207,6 +224,7 @@ class MainWindow(QMainWindow):
         self.analyze_button = QPushButton("Analyze")
 
         for button in [self.import_button, self.remove_button, self.clear_button, self.analyze_button]:
+            button.setMinimumHeight(40)
             import_layout.addWidget(button)
 
         self.import_button.clicked.connect(self.import_songs)
@@ -217,6 +235,7 @@ class MainWindow(QMainWindow):
         processing_group = QGroupBox("Processing Options")
         processing_layout = QFormLayout(processing_group)
         processing_layout.setSpacing(10)
+        processing_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         self.reference_checkbox = QCheckBox("Match to reference song")
         self.reference_combo = QComboBox()
@@ -244,9 +263,11 @@ class MainWindow(QMainWindow):
         export_group = QGroupBox("Export")
         export_layout = QHBoxLayout(export_group)
         export_layout.setSpacing(8)
+        export_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         self.output_dir_edit = QLineEdit(default_export_dir())
         self.output_browse_button = QPushButton("Browse")
+        self.output_browse_button.setMinimumHeight(42)
         export_layout.addWidget(self.output_dir_edit, 1)
         export_layout.addWidget(self.output_browse_button)
         self.output_browse_button.clicked.connect(self.browse_output_folder)
@@ -254,6 +275,7 @@ class MainWindow(QMainWindow):
         run_group = QGroupBox("Run Actions")
         run_layout = QVBoxLayout(run_group)
         run_layout.setSpacing(8)
+        run_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         self.separate_button = QPushButton("Separate Stems")
         self.match_tempo_button = QPushButton("Match Tempo")
@@ -263,12 +285,16 @@ class MainWindow(QMainWindow):
         self.cancel_button = QPushButton("Cancel Current Task")
         self.cancel_button.setEnabled(False)
 
-        run_layout.addWidget(self.separate_button)
-        run_layout.addWidget(self.match_tempo_button)
-        run_layout.addWidget(self.match_key_button)
-        run_layout.addWidget(self.process_all_button)
-        run_layout.addWidget(self.export_button)
-        run_layout.addWidget(self.cancel_button)
+        for button in [
+            self.separate_button,
+            self.match_tempo_button,
+            self.match_key_button,
+            self.process_all_button,
+            self.export_button,
+            self.cancel_button,
+        ]:
+            button.setMinimumHeight(40)
+            run_layout.addWidget(button)
 
         self.separate_button.clicked.connect(lambda: self.start_processing_task("separate"))
         self.match_tempo_button.clicked.connect(lambda: self.start_processing_task("match_tempo"))
