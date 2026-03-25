@@ -4,6 +4,7 @@ librosa>=0.10.2
 soundfile>=0.12.1
 pyrubberband>=0.3.0
 demucs>=4.0.1
+torchcodec>=0.1.0
 
 # Install these system tools separately and keep them on PATH:
 # ffmpeg

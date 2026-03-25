@@ -217,5 +217,6 @@ __marimo__/
 
 
 
-# Custom
-exports
+# TuneMatrix generated artifacts
+/exports/
+/smoke_test.wav

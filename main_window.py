@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from audio_processing import dependency_status_lines
+from audio_processing import action_base_requirement_message, action_runtime_issues, dependency_status_lines
 from models import KEY_OPTIONS, ProcessingOptions, SongRecord, SongStatus, STEM_OPTIONS, TABLE_HEADERS
 from utils import default_export_dir, format_bpm, format_duration, format_key, is_supported_audio_file, validate_audio_file
 from workers import AnalyzeWorker, ProcessingWorker
@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
         self.current_thread: Optional[QThread] = None
         self.current_worker = None
         self.task_cancel_requested = False
+        self.action_dependency_messages: dict[str, str] = {}
 
         self.setWindowTitle("TuneMatrix")
         self.resize(1400, 900)
@@ -94,6 +95,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._apply_styles()
         self._log_startup_details()
+        self._refresh_action_availability()
 
     def _create_actions(self) -> None:
         self.import_action = QAction("Import Songs", self)
@@ -395,6 +397,42 @@ class MainWindow(QMainWindow):
         self.append_log("TuneMatrix ready.")
         for line in dependency_status_lines():
             self.append_log(line)
+        for action_name, message in self._collect_base_action_messages().items():
+            self.append_log(f"{action_name.replace('_', ' ').title()} disabled: {message}")
+
+    def _action_controls(self) -> dict[str, list[object]]:
+        return {
+            "analyze": [self.analyze_button, self.analyze_action],
+            "separate": [self.separate_button, self.separate_action],
+            "match_tempo": [self.match_tempo_button, self.match_tempo_action],
+            "match_key": [self.match_key_button, self.match_key_action],
+            "process_all": [self.process_all_button, self.process_all_action],
+            "export": [self.export_button, self.export_action],
+        }
+
+    def _collect_base_action_messages(self) -> dict[str, str]:
+        messages: dict[str, str] = {}
+        for action_name in self._action_controls():
+            message = action_base_requirement_message(action_name)
+            if message:
+                messages[action_name] = message
+        return messages
+
+    def _apply_control_hint(self, control: object, message: str) -> None:
+        if hasattr(control, "setToolTip"):
+            control.setToolTip(message)
+        if isinstance(control, QAction):
+            control.setStatusTip(message)
+
+    def _refresh_action_availability(self) -> None:
+        self.action_dependency_messages = self._collect_base_action_messages()
+
+        for action_name, controls in self._action_controls().items():
+            message = self.action_dependency_messages.get(action_name, "")
+            enabled = self.current_worker is None and not message
+            for control in controls:
+                control.setEnabled(enabled)
+                self._apply_control_hint(control, message)
 
     def append_log(self, message: str) -> None:
         timestamp = QTime.currentTime().toString("HH:mm:ss")
@@ -436,6 +474,9 @@ class MainWindow(QMainWindow):
             existing_paths.add(resolved)
             added_count += 1
             self.append_log(f"Imported {song.file_name}")
+            file_issues = action_runtime_issues("analyze", [resolved])
+            for issue in dict.fromkeys(file_issues):
+                self.append_log(f"{song.file_name}: {issue}")
 
         if added_count:
             self.refresh_reference_combo()
@@ -504,6 +545,12 @@ class MainWindow(QMainWindow):
             return
 
         songs = self.selected_or_all_songs()
+        runtime_issues = list(dict.fromkeys(action_runtime_issues("analyze", [song.file_path for song in songs])))
+        if runtime_issues:
+            message = "\n".join(runtime_issues)
+            self.append_log(message)
+            self.show_warning(message)
+            return
         worker = AnalyzeWorker(songs)
         self.start_worker(worker, "Analyzing songs")
 
@@ -522,6 +569,13 @@ class MainWindow(QMainWindow):
 
         if not songs:
             self.show_warning("Select at least one song.")
+            return
+
+        runtime_issues = list(dict.fromkeys(action_runtime_issues(action, [song.file_path for song in songs])))
+        if runtime_issues:
+            message = "\n".join(runtime_issues)
+            self.append_log(message)
+            self.show_warning(message)
             return
 
         options = self.build_processing_options()
@@ -618,40 +672,29 @@ class MainWindow(QMainWindow):
         self.show_error(message)
 
     def on_worker_finished(self) -> None:
+        self.current_worker = None
+        self.current_thread = None
         self.set_task_running(False)
         if not self.task_cancel_requested:
             self.progress_bar.setValue(100 if self.songs else 0)
-        self.current_worker = None
-        self.current_thread = None
         self.append_log("Task canceled." if self.task_cancel_requested else "Task finished.")
 
     def set_task_running(self, running: bool) -> None:
-        controls = [
+        always_available_controls = [
             self.import_button,
             self.remove_button,
             self.clear_button,
-            self.analyze_button,
-            self.separate_button,
-            self.match_tempo_button,
-            self.match_key_button,
-            self.process_all_button,
-            self.export_button,
             self.import_action,
             self.remove_action,
             self.clear_action,
-            self.analyze_action,
-            self.separate_action,
-            self.match_tempo_action,
-            self.match_key_action,
-            self.process_all_action,
-            self.export_action,
         ]
 
-        for control in controls:
+        for control in always_available_controls:
             control.setEnabled(not running)
 
         self.cancel_button.setEnabled(running)
         self.cancel_action.setEnabled(running)
+        self._refresh_action_availability()
 
     def refresh_reference_combo(self) -> None:
         current_value = self.reference_combo.currentData()

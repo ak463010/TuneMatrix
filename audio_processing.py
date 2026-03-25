@@ -69,12 +69,21 @@ class TaskCanceledError(AudioProcessingError):
     pass
 
 
+COMPRESSED_FORMATS = {".mp3", ".m4a"}
+ANALYSIS_ACTIONS = {"analyze", "match_tempo", "match_key", "process_all"}
+STEM_ACTIONS = {"separate", "process_all"}
+WRITE_ACTIONS = {"match_tempo", "match_key", "process_all"}
+
+
 def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
     return {
         "librosa": {"available": librosa is not None, "detail": LIBROSA_IMPORT_ERROR},
         "numpy": {"available": np is not None, "detail": NUMPY_IMPORT_ERROR},
         "soundfile": {"available": sf is not None, "detail": SOUND_FILE_IMPORT_ERROR},
         "pyrubberband": {"available": pyrb is not None, "detail": PYRUBBERBAND_IMPORT_ERROR},
+        "torch": {"available": importlib.util.find_spec("torch") is not None, "detail": None},
+        "torchaudio": {"available": importlib.util.find_spec("torchaudio") is not None, "detail": None},
+        "torchcodec": {"available": importlib.util.find_spec("torchcodec") is not None, "detail": None},
         "rubberband": {"available": find_executable("rubberband") is not None, "detail": None},
         "ffmpeg": {"available": find_executable("ffmpeg") is not None, "detail": None},
         "demucs": {"available": importlib.util.find_spec("demucs") is not None, "detail": None},
@@ -83,10 +92,65 @@ def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
 
 def dependency_status_lines() -> list[str]:
     report = get_dependency_report()
-    return [
-        format_dependency_status(name, info["available"], info["detail"])
-        for name, info in report.items()
+    ordered_names = [
+        "librosa",
+        "numpy",
+        "soundfile",
+        "pyrubberband",
+        "rubberband",
+        "ffmpeg",
+        "torch",
+        "torchaudio",
+        "torchcodec",
+        "demucs",
     ]
+    return [format_dependency_status(name, report[name]["available"], report[name]["detail"]) for name in ordered_names]
+
+
+def _file_paths_need_ffmpeg(file_paths: Optional[list[str]]) -> bool:
+    if not file_paths:
+        return False
+    return any(Path(path).suffix.lower() in COMPRESSED_FORMATS for path in file_paths)
+
+
+def _decode_support_required(file_path: str) -> bool:
+    return Path(file_path).suffix.lower() in COMPRESSED_FORMATS
+
+
+def action_runtime_issues(action: str, file_paths: Optional[list[str]] = None) -> list[str]:
+    report = get_dependency_report()
+    issues: list[str] = []
+
+    if action in ANALYSIS_ACTIONS:
+        if not report["numpy"]["available"]:
+            issues.append("NumPy is required for audio analysis.")
+        if not report["librosa"]["available"]:
+            issues.append("librosa is required for audio analysis.")
+
+    if action in WRITE_ACTIONS and not report["soundfile"]["available"]:
+        issues.append("soundfile is required to write processed audio files.")
+
+    if action in STEM_ACTIONS:
+        if not report["demucs"]["available"]:
+            issues.append("Demucs is not installed.")
+        if not report["torch"]["available"]:
+            issues.append("PyTorch is required for stem separation.")
+        if not report["torchaudio"]["available"]:
+            issues.append("torchaudio is required for stem separation.")
+        if not report["torchcodec"]["available"]:
+            issues.append("torchcodec is required by the current Demucs/torchaudio runtime.")
+
+    if action in ANALYSIS_ACTIONS and _file_paths_need_ffmpeg(file_paths) and not report["ffmpeg"]["available"]:
+        issues.append("ffmpeg is required to decode mp3 and m4a files.")
+
+    return issues
+
+
+def action_base_requirement_message(action: str) -> Optional[str]:
+    issues = action_runtime_issues(action)
+    if not issues:
+        return None
+    return " ".join(issues)
 
 
 def _log(log_callback: LogCallback, message: str) -> None:
@@ -115,8 +179,15 @@ def _require_audio_write_stack() -> None:
         raise DependencyError(f"soundfile is not available{detail}")
 
 
+def _require_decode_support(file_path: str) -> None:
+    if _decode_support_required(file_path) and find_executable("ffmpeg") is None:
+        suffix = Path(file_path).suffix.lower()
+        raise DependencyError(f"ffmpeg is required to decode {suffix} files. Install ffmpeg or use wav/flac.")
+
+
 def analyze_audio(file_path: str) -> dict[str, Optional[float | str]]:
     _require_analysis_stack()
+    _require_decode_support(file_path)
 
     audio, sample_rate = librosa.load(file_path, sr=None, mono=True)
     duration = float(librosa.get_duration(y=audio, sr=sample_rate))
@@ -167,6 +238,7 @@ def detect_key(audio: "np.ndarray", sample_rate: int) -> Optional[str]:
 
 def _load_audio_for_processing(file_path: str) -> tuple["np.ndarray", int]:
     _require_analysis_stack()
+    _require_decode_support(file_path)
     audio, sample_rate = librosa.load(file_path, sr=None, mono=False)
     return np.asarray(audio, dtype=np.float32), sample_rate
 
@@ -353,8 +425,9 @@ def separate_song_stems(
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, str]:
-    if importlib.util.find_spec("demucs") is None:
-        raise DependencyError("Demucs is not installed. Install the `demucs` package to use stem separation.")
+    issues = action_runtime_issues("separate")
+    if issues:
+        raise DependencyError(" ".join(issues))
 
     stem_root = Path(make_song_cache_dir(song.file_path, song.file_name, "stems"))
     run_root = stem_root / safe_stem(stem_option.lower())
