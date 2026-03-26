@@ -30,11 +30,39 @@ class MainWindowTests(unittest.TestCase):
 
     def test_action_availability_reflects_dependency_messages(self) -> None:
         window = self._build_window()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "availability.wav"
+            wav_path.write_bytes(b"test")
+            window.import_songs([str(wav_path)])
+        window.song_table.selectRow(0)
+        with patch(
+            "main_window.action_base_requirement_message",
+            side_effect=lambda action: {"separate": "Stem dependency missing.", "process_all": "Stem dependency missing."}.get(action),
+        ):
+            window._refresh_action_availability()
 
         self.assertTrue(window.analyze_button.isEnabled())
         self.assertFalse(window.separate_button.isEnabled())
         self.assertFalse(window.process_all_button.isEnabled())
         self.assertIn("Stem dependency missing.", window.separate_button.toolTip())
+
+    def test_song_actions_stay_disabled_without_selection(self) -> None:
+        window = self._build_window()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "selection.wav"
+            wav_path.write_bytes(b"test")
+            window.import_songs([str(wav_path)])
+
+        self.assertFalse(window.remove_button.isEnabled())
+        self.assertFalse(window.analyze_button.isEnabled())
+        self.assertFalse(window.export_button.isEnabled())
+        self.assertEqual(window.analyze_button.toolTip(), "Select at least one song.")
+
+        window.song_table.selectRow(0)
+
+        self.assertTrue(window.remove_button.isEnabled())
+        self.assertTrue(window.analyze_button.isEnabled())
+        self.assertTrue(window.export_button.isEnabled())
 
     def test_clickable_controls_use_pointing_hand_cursor(self) -> None:
         window = self._build_window()
@@ -73,7 +101,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.song_table.columnWidth(2), 136)
         self.assertEqual(window.song_table.columnWidth(3), 136)
 
-    def test_table_combos_fill_the_visible_row_height(self) -> None:
+    def test_table_combos_use_direct_cell_widgets_with_compact_fixed_height(self) -> None:
         window = self._build_window()
         with tempfile.TemporaryDirectory() as temp_dir:
             wav_path = Path(temp_dir) / "rowfill.wav"
@@ -82,11 +110,13 @@ class MainWindowTests(unittest.TestCase):
             bpm_range_combo = window._table_combo_at(0, 2)
             key_hint_combo = window._table_combo_at(0, 3)
 
-        bpm_rect_height = window.song_table.visualRect(window.song_table.model().index(0, 2)).height()
-        key_rect_height = window.song_table.visualRect(window.song_table.model().index(0, 3)).height()
-
-        self.assertEqual(bpm_range_combo.height(), bpm_rect_height)
-        self.assertEqual(key_hint_combo.height(), key_rect_height)
+        self.assertIs(window.song_table.cellWidget(0, 2), bpm_range_combo)
+        self.assertIs(window.song_table.cellWidget(0, 3), key_hint_combo)
+        self.assertEqual(window.song_table.verticalHeader().defaultSectionSize(), 28)
+        self.assertEqual(bpm_range_combo.minimumHeight(), 22)
+        self.assertEqual(key_hint_combo.minimumHeight(), 22)
+        self.assertEqual(bpm_range_combo.maximumHeight(), 22)
+        self.assertEqual(key_hint_combo.maximumHeight(), 22)
 
     def test_build_processing_options_parses_form_values(self) -> None:
         window = self._build_window()

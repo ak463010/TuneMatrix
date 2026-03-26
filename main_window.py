@@ -425,9 +425,10 @@ class MainWindow(QMainWindow):
         self.song_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.song_table.setObjectName("songTable")
         self.song_table.verticalHeader().setVisible(False)
-        self.song_table.verticalHeader().setDefaultSectionSize(26)
+        self.song_table.verticalHeader().setDefaultSectionSize(28)
         self.song_table.setShowGrid(True)
         self.song_table.files_dropped.connect(self.import_songs)
+        self.song_table.itemSelectionChanged.connect(self._refresh_action_availability)
 
         header = self.song_table.horizontalHeader()
         header.setStretchLastSection(False)
@@ -906,15 +907,30 @@ class MainWindow(QMainWindow):
         if isinstance(control, QAction):
             control.setStatusTip(message)
 
+    def _has_song_selection(self) -> bool:
+        return bool(self.selected_rows())
+
     def _refresh_action_availability(self) -> None:
         self.action_dependency_messages = self._collect_base_action_messages()
+        selection_required_message = "Select at least one song."
+
+        selection_controls = [
+            self.remove_button,
+            self.remove_action,
+            *[control for controls in self._action_controls().values() for control in controls],
+        ]
+        has_selection = self.current_worker is None and self._has_song_selection()
+
+        for control in selection_controls:
+            control.setEnabled(has_selection)
+            self._apply_control_hint(control, "" if has_selection else selection_required_message)
 
         for action_name, controls in self._action_controls().items():
             message = self.action_dependency_messages.get(action_name, "")
-            enabled = self.current_worker is None and not message
+            enabled = has_selection and not message
             for control in controls:
                 control.setEnabled(enabled)
-                self._apply_control_hint(control, message)
+                self._apply_control_hint(control, message or ("" if has_selection else selection_required_message))
 
     def append_log(self, message: str) -> None:
         timestamp = QTime.currentTime().toString("HH:mm:ss")
@@ -987,16 +1003,6 @@ class MainWindow(QMainWindow):
             custom_index = insert_index
         combo.setCurrentIndex(custom_index)
 
-    def _wrap_table_cell_widget(self, widget: QWidget) -> QWidget:
-        container = QWidget()
-        container.setObjectName("tableCellContainer")
-        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(0)
-        layout.addWidget(widget)
-        return container
-
     def _table_combo_at(self, row: int, column: int) -> Optional[QComboBox]:
         widget = self.song_table.cellWidget(row, column)
         if isinstance(widget, QComboBox):
@@ -1009,8 +1015,8 @@ class MainWindow(QMainWindow):
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setMinimumHeight(0)
-        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        combo.setFixedHeight(22)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.setMaxVisibleItems(len(BPM_RANGE_OPTIONS) + 2)
         combo.setToolTip("Choose a preset or use Enter BPM... for a manual value like 128 or 120-130.")
         for label, bpm_range in BPM_RANGE_OPTIONS:
@@ -1027,8 +1033,8 @@ class MainWindow(QMainWindow):
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setMinimumHeight(0)
-        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        combo.setFixedHeight(22)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.addItem("Auto", None)
         for key_name in KEY_OPTIONS:
             combo.addItem(key_name, key_name)
@@ -1332,12 +1338,8 @@ class MainWindow(QMainWindow):
         rows = sorted({index.row() for index in selection_model.selectedRows()})
         return rows
 
-    def selected_or_all_songs(self) -> list[SongRecord]:
-        if not self.songs:
-            return []
+    def selected_songs(self) -> list[SongRecord]:
         rows = self.selected_rows()
-        if not rows:
-            return list(self.songs)
         return [self.songs[row] for row in rows]
 
     def get_reference_song(self) -> Optional[SongRecord]:
@@ -1357,7 +1359,10 @@ class MainWindow(QMainWindow):
             self.show_warning("A task is already running.")
             return
 
-        songs = self.selected_or_all_songs()
+        songs = self.selected_songs()
+        if not songs:
+            self.show_warning("Select at least one song before analyzing.")
+            return
         runtime_issues = list(dict.fromkeys(action_runtime_issues("analyze", [song.file_path for song in songs])))
         if runtime_issues:
             message = "\n".join(runtime_issues)
@@ -1375,11 +1380,7 @@ class MainWindow(QMainWindow):
             self.show_warning("A task is already running.")
             return
 
-        if action == "process_all":
-            songs = list(self.songs)
-        else:
-            songs = self.selected_or_all_songs()
-
+        songs = self.selected_songs()
         if not songs:
             self.show_warning("Select at least one song.")
             return
@@ -1566,7 +1567,7 @@ class MainWindow(QMainWindow):
         bpm_range_combo = self._table_combo_at(row, bpm_range_column)
         if not isinstance(bpm_range_combo, QComboBox):
             bpm_range_combo = self._create_song_bpm_range_combo(song)
-            self.song_table.setCellWidget(row, bpm_range_column, self._wrap_table_cell_widget(bpm_range_combo))
+            self.song_table.setCellWidget(row, bpm_range_column, bpm_range_combo)
         else:
             bpm_range_combo.blockSignals(True)
             self._set_song_bpm_range_combo_value(bpm_range_combo, song.bpm_range_label)
@@ -1575,7 +1576,7 @@ class MainWindow(QMainWindow):
         key_hint_combo = self._table_combo_at(row, key_hint_column)
         if not isinstance(key_hint_combo, QComboBox):
             key_hint_combo = self._create_song_key_hint_combo(song)
-            self.song_table.setCellWidget(row, key_hint_column, self._wrap_table_cell_widget(key_hint_combo))
+            self.song_table.setCellWidget(row, key_hint_column, key_hint_combo)
         else:
             key_hint_combo.blockSignals(True)
             self._set_combo_data(key_hint_combo, song.analysis_key_hint)
