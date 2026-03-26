@@ -22,7 +22,7 @@ from audio_processing import (
     normalize_bpm_to_range_hint,
     separate_song_stems,
 )
-from models import SongRecord
+from models import SongRecord, bpm_range_from_label
 
 
 def create_test_wave(path: Path, frequency: float = 440.0, duration: float = 2.0, sample_rate: int = 22050) -> None:
@@ -60,6 +60,13 @@ class AudioProcessingTests(unittest.TestCase):
     def test_normalize_bpm_to_range_hint_prefers_value_inside_selected_band(self) -> None:
         self.assertEqual(normalize_bpm_to_range_hint(75.0, (140.0, 160.0)), 150.0)
         self.assertEqual(normalize_bpm_to_range_hint(128.0, None), 128.0)
+
+    def test_bpm_range_from_label_supports_manual_value_and_range(self) -> None:
+        self.assertEqual(bpm_range_from_label("128"), (127.5, 128.5))
+        self.assertEqual(bpm_range_from_label("128 BPM"), (127.5, 128.5))
+        self.assertEqual(bpm_range_from_label("120-130"), (120.0, 130.0))
+        self.assertEqual(bpm_range_from_label("130 to 120 BPM"), (120.0, 130.0))
+        self.assertIsNone(bpm_range_from_label("not-a-range"))
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {

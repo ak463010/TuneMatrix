@@ -54,6 +54,19 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.song_table.hasMouseTracking())
         self.assertTrue(window.song_table.viewport().hasMouseTracking())
 
+    def test_bpm_range_combo_is_editable_and_keeps_dropdown_options(self) -> None:
+        window = self._build_window()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "dropdown.wav"
+            wav_path.write_bytes(b"test")
+            window.import_songs([str(wav_path)])
+            bpm_range_combo = window.song_table.cellWidget(0, 2)
+
+        self.assertTrue(bpm_range_combo.isEditable())
+        dropdown_items = [bpm_range_combo.itemText(index) for index in range(bpm_range_combo.count())]
+        self.assertIn("60 - 90 BPM", dropdown_items)
+        self.assertIn("Enter BPM...", dropdown_items)
+
     def test_build_processing_options_parses_form_values(self) -> None:
         window = self._build_window()
 
@@ -137,6 +150,23 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(state["ui"]["match_to_reference"])
         self.assertEqual(state["ui"]["reference_song_path"], str(wav_path.resolve()))
         self.assertEqual(state["ui"]["output_dir"], "C:/exports")
+
+    def test_manual_bpm_range_value_is_preserved_in_song_row_and_project_state(self) -> None:
+        window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "manual.wav"
+            wav_path.write_bytes(b"test")
+            window.import_songs([str(wav_path)])
+            bpm_range_combo = window.song_table.cellWidget(0, 2)
+
+        bpm_range_combo.setCurrentText("128")
+
+        state = window.collect_project_state()
+
+        self.assertEqual(window.songs[0].bpm_range_label, "128")
+        self.assertEqual(window.song_table.cellWidget(0, 2).currentText(), "128")
+        self.assertEqual(state["songs"][0]["bpm_range_label"], "128")
 
     def test_apply_project_state_restores_songs_and_controls(self) -> None:
         window = self._build_window()
@@ -224,6 +254,47 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(restored_window.selected_stem_values(), ["Drums"])
         self.assertTrue(restored_window.reference_checkbox.isChecked())
         self.assertEqual(restored_window.reference_combo.currentData(), str(wav_path.resolve()))
+
+    def test_apply_project_state_restores_manual_bpm_range_text(self) -> None:
+        window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "manual_restore.wav"
+            wav_path.write_bytes(b"test")
+
+            window.apply_project_state(
+                {
+                    "format_version": PROJECT_STATE_VERSION,
+                    "songs": [
+                        {
+                            "file_path": str(wav_path),
+                            "file_name": "manual_restore.wav",
+                            "bpm_range_label": "127.5",
+                            "analysis_key_hint": None,
+                            "duration": None,
+                            "bpm": None,
+                            "musical_key": None,
+                            "relative_key": None,
+                            "compatible_keys": [],
+                            "status": "Imported",
+                            "stems_dir": None,
+                            "processed_path": None,
+                            "last_error": None,
+                        }
+                    ],
+                    "ui": {
+                        "target_bpm_text": "",
+                        "target_key": None,
+                        "stem_option": "All stems",
+                        "selected_stems": ["Vocals", "Instrumental / No vocals", "Drums", "Bass", "Other"],
+                        "match_to_reference": False,
+                        "reference_song_path": None,
+                        "output_dir": "D:/processed",
+                    },
+                }
+            )
+
+        self.assertEqual(window.song_table.cellWidget(0, 2).currentText(), "127.5")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+import re
 from typing import Any, Optional
 
 TABLE_HEADERS = [
@@ -63,6 +64,7 @@ BPM_RANGE_OPTIONS = [
     ("160 - 190 BPM", (160.0, 190.0)),
 ]
 BPM_RANGE_DEFAULT_LABEL = "Auto"
+BPM_RANGE_MANUAL_LABEL = "Enter BPM..."
 
 
 class SongStatus(str, Enum):
@@ -151,7 +153,29 @@ class ProcessingOptions:
 
 def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:
     normalized = str(label or BPM_RANGE_DEFAULT_LABEL).strip()
+    if normalized == BPM_RANGE_MANUAL_LABEL:
+        return None
     for option_label, option_range in BPM_RANGE_OPTIONS:
         if option_label == normalized:
             return option_range
+
+    lowered = normalized.lower()
+    if lowered == "auto":
+        return None
+
+    cleaned = lowered.replace("bpm", "").strip()
+    range_match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)", cleaned)
+    if range_match:
+        start = float(range_match.group(1))
+        end = float(range_match.group(2))
+        if start > 0 and end > 0 and start != end:
+            return (min(start, end), max(start, end))
+        return None
+
+    single_match = re.fullmatch(r"(\d+(?:\.\d+)?)", cleaned)
+    if single_match:
+        center = float(single_match.group(1))
+        if center > 0:
+            return (center - 0.5, center + 0.5)
+
     return None

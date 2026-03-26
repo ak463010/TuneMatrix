@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from audio_processing import action_base_requirement_message, action_runtime_issues, dependency_status_lines
 from models import (
     BPM_RANGE_DEFAULT_LABEL,
+    BPM_RANGE_MANUAL_LABEL,
     BPM_RANGE_OPTIONS,
     KEY_OPTIONS,
     ProcessingOptions,
@@ -648,6 +649,7 @@ class MainWindow(QMainWindow):
     def _apply_styles(self) -> None:
         checkbox_checked_icon = (ICON_DIR / "checkbox_checked.svg").as_posix()
         checkbox_unchecked_icon = (ICON_DIR / "checkbox_unchecked.svg").as_posix()
+        combo_chevron_icon = (ICON_DIR / "chevron_down.svg").as_posix()
         self.setStyleSheet(
             """
             QWidget {
@@ -777,6 +779,11 @@ class MainWindow(QMainWindow):
                 border: none;
                 width: 18px;
             }
+            QComboBox::down-arrow {
+                image: url("%s");
+                width: 10px;
+                height: 6px;
+            }
             QComboBox QAbstractItemView {
                 background-color: #131920;
                 color: #eef3fb;
@@ -848,7 +855,7 @@ class MainWindow(QMainWindow):
                 font-size: 11px;
             }
             """
-            % (checkbox_unchecked_icon, checkbox_checked_icon)
+            % (combo_chevron_icon, checkbox_unchecked_icon, checkbox_checked_icon)
         )
 
     def _log_startup_details(self) -> None:
@@ -923,7 +930,13 @@ class MainWindow(QMainWindow):
     def _set_combo_text(self, combo: QComboBox, value: object) -> None:
         text_value = str(value or "").strip()
         index = combo.findText(text_value)
-        combo.setCurrentIndex(index if index >= 0 else 0)
+        if index >= 0:
+            combo.setCurrentIndex(index)
+            return
+        if combo.isEditable():
+            combo.setEditText(text_value or BPM_RANGE_DEFAULT_LABEL)
+            return
+        combo.setCurrentIndex(0)
 
     def _song_for_path(self, file_path: str) -> Optional[SongRecord]:
         for song in self.songs:
@@ -936,10 +949,18 @@ class MainWindow(QMainWindow):
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
         combo.setFixedHeight(24)
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setMaxVisibleItems(len(BPM_RANGE_OPTIONS) + 2)
+        combo.setToolTip("Choose a preset or type a BPM like 128 or a range like 120-130.")
+        combo.lineEdit().setPlaceholderText("Auto or Enter BPM")
         for label, bpm_range in BPM_RANGE_OPTIONS:
             combo.addItem(label, bpm_range)
+        combo.insertSeparator(combo.count())
+        combo.addItem(BPM_RANGE_MANUAL_LABEL, "__manual__")
         self._set_combo_text(combo, song.bpm_range_label)
         combo.currentTextChanged.connect(lambda text, path=song.file_path: self._on_song_bpm_range_changed(path, text))
+        combo.activated.connect(lambda _index, path=song.file_path, widget=combo: self._on_song_bpm_range_activated(path, widget))
         return combo
 
     def _create_song_key_hint_combo(self, song: SongRecord) -> QComboBox:
@@ -960,7 +981,26 @@ class MainWindow(QMainWindow):
         song = self._song_for_path(file_path)
         if song is None:
             return
-        song.bpm_range_label = str(label or BPM_RANGE_DEFAULT_LABEL)
+        normalized = str(label or "").strip()
+        if not normalized:
+            song.bpm_range_label = BPM_RANGE_DEFAULT_LABEL
+            return
+        if normalized == BPM_RANGE_MANUAL_LABEL:
+            return
+        song.bpm_range_label = normalized
+
+    def _on_song_bpm_range_activated(self, file_path: str, combo: QComboBox) -> None:
+        if combo.currentData() != "__manual__":
+            return
+        song = self._song_for_path(file_path)
+        if song is None:
+            return
+        current_text = song.bpm_range_label
+        if current_text in {BPM_RANGE_DEFAULT_LABEL, BPM_RANGE_MANUAL_LABEL}:
+            current_text = ""
+        combo.setEditText(current_text)
+        combo.lineEdit().setFocus()
+        combo.lineEdit().selectAll()
 
     def _on_song_key_hint_changed(self, file_path: str, key_hint: object) -> None:
         song = self._song_for_path(file_path)
