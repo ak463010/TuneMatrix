@@ -535,6 +535,35 @@ class MainWindow(QMainWindow):
         form_layout.addRow("Output Folder", output_row)
 
         layout.addLayout(form_layout)
+
+        override_label = QLabel("Song Overrides")
+        override_label.setObjectName("fieldLabel")
+        layout.addWidget(override_label)
+
+        override_note = QLabel("These controls are batch defaults. Apply them to selected songs to store per-song overrides.")
+        override_note.setObjectName("hintLabel")
+        override_note.setWordWrap(True)
+        layout.addWidget(override_note)
+
+        override_row = QWidget()
+        override_layout = QHBoxLayout(override_row)
+        override_layout.setContentsMargins(0, 0, 0, 0)
+        override_layout.setSpacing(8)
+
+        self.apply_song_overrides_button = QPushButton("Apply to Selected")
+        self.apply_song_overrides_button.setObjectName("inlineButton")
+        self.apply_song_overrides_button.setFixedHeight(28)
+        self.apply_song_overrides_button.clicked.connect(self.apply_processing_overrides_to_selected)
+
+        self.clear_song_overrides_button = QPushButton("Use Defaults")
+        self.clear_song_overrides_button.setObjectName("inlineButton")
+        self.clear_song_overrides_button.setFixedHeight(28)
+        self.clear_song_overrides_button.clicked.connect(self.clear_processing_overrides_for_selected)
+
+        override_layout.addWidget(self.apply_song_overrides_button, 1)
+        override_layout.addWidget(self.clear_song_overrides_button, 1)
+        layout.addWidget(override_row)
+
         layout.addStretch(1)
 
         hint_label = QLabel("Drag and drop mp3, wav, flac, or m4a files onto the song table.")
@@ -917,6 +946,8 @@ class MainWindow(QMainWindow):
         selection_controls = [
             self.remove_button,
             self.remove_action,
+            self.apply_song_overrides_button,
+            self.clear_song_overrides_button,
             *[control for controls in self._action_controls().values() for control in controls],
         ]
         has_selection = self.current_worker is None and self._has_song_selection()
@@ -1074,6 +1105,87 @@ class MainWindow(QMainWindow):
         if song is None:
             return
         song.analysis_key_hint = str(key_hint or "").strip() or None
+
+    def _parse_target_bpm_value(self) -> Optional[float]:
+        bpm_text = self.target_bpm_edit.text().strip()
+        if not bpm_text:
+            return None
+        try:
+            return float(bpm_text)
+        except ValueError:
+            return None
+
+    def _normalized_processing_override_stems(self) -> Optional[list[str]]:
+        selected_stems = self.selected_stem_values()
+        if not selected_stems or len(selected_stems) == len(self.stem_checkboxes):
+            return None
+        return list(selected_stems)
+
+    def _song_processing_override_tooltip(self, song: SongRecord) -> str:
+        if not song.processing_override_enabled:
+            return ""
+
+        stems_label = ", ".join(song.processing_selected_stems or []) if song.processing_selected_stems else "All stems"
+        bpm_label = f"{song.processing_target_bpm:g}" if song.processing_target_bpm is not None else "Default / skip"
+        key_label = song.processing_target_key or "Default / unchanged"
+        return (
+            "Song override\n"
+            f"Target BPM: {bpm_label}\n"
+            f"Target Key: {key_label}\n"
+            f"Stems: {stems_label}"
+        )
+
+    def apply_processing_overrides_to_selected(self) -> None:
+        if not self._can_modify_project("changing song overrides"):
+            return
+
+        songs = self.selected_songs()
+        if not songs:
+            self.show_warning("Select at least one song.")
+            return
+
+        bpm_text = self.target_bpm_edit.text().strip()
+        bpm_value = self._parse_target_bpm_value()
+        if bpm_text and bpm_value is None:
+            self.show_warning("Target BPM must be a number before applying song overrides.")
+            return
+        if bpm_value is not None and bpm_value <= 0:
+            self.show_warning("Target BPM must be greater than zero.")
+            return
+
+        target_key = self.target_key_combo.currentData()
+        selected_stems_override = self._normalized_processing_override_stems()
+
+        for song in songs:
+            song.processing_override_enabled = True
+            song.processing_target_bpm = bpm_value
+            song.processing_target_key = target_key
+            song.processing_selected_stems = list(selected_stems_override) if selected_stems_override is not None else None
+            row = self.find_song_row(song.file_path)
+            if row is not None:
+                self._populate_song_row(row, song)
+
+        self.append_log(f"Applied processing overrides to {len(songs)} song(s).")
+
+    def clear_processing_overrides_for_selected(self) -> None:
+        if not self._can_modify_project("clearing song overrides"):
+            return
+
+        songs = self.selected_songs()
+        if not songs:
+            self.show_warning("Select at least one song.")
+            return
+
+        for song in songs:
+            song.processing_override_enabled = False
+            song.processing_target_bpm = None
+            song.processing_target_key = None
+            song.processing_selected_stems = None
+            row = self.find_song_row(song.file_path)
+            if row is not None:
+                self._populate_song_row(row, song)
+
+        self.append_log(f"Cleared processing overrides for {len(songs)} song(s).")
 
     def selected_stem_values(self) -> list[str]:
         if not hasattr(self, "stem_checkboxes"):
@@ -1395,12 +1507,13 @@ class MainWindow(QMainWindow):
         options = self.build_processing_options()
         reference_song = self.get_reference_song()
         bpm_text = self.target_bpm_edit.text().strip()
+        target_bpm_value = self._parse_target_bpm_value()
 
         if action in {"match_tempo", "process_all"} and bpm_text:
-            if options.target_bpm is None:
+            if target_bpm_value is None:
                 self.show_warning("Target BPM must be a number.")
                 return
-            if options.target_bpm <= 0:
+            if target_bpm_value <= 0:
                 self.show_warning("Target BPM must be greater than zero.")
                 return
 
@@ -1408,13 +1521,27 @@ class MainWindow(QMainWindow):
             self.show_warning("Choose a reference song or turn off reference matching.")
             return
 
-        if action == "match_tempo" and not options.match_to_reference and options.target_bpm is None:
-            self.show_warning("Enter a target BPM or enable reference matching.")
-            return
+        if action == "match_tempo" and not options.match_to_reference:
+            missing_bpm_songs = [
+                song.file_name
+                for song in songs
+                if not song.processing_override_enabled and target_bpm_value is None
+                or (song.processing_override_enabled and song.processing_target_bpm is None)
+            ]
+            if missing_bpm_songs:
+                self.show_warning("Enter a target BPM, enable reference matching, or apply per-song BPM overrides.")
+                return
 
-        if action == "match_key" and not options.match_to_reference and not options.target_key:
-            self.show_warning("Choose a target key or enable reference matching.")
-            return
+        if action == "match_key" and not options.match_to_reference:
+            missing_key_songs = [
+                song.file_name
+                for song in songs
+                if not song.processing_override_enabled and not options.target_key
+                or (song.processing_override_enabled and not song.processing_target_key)
+            ]
+            if missing_key_songs:
+                self.show_warning("Choose a target key, enable reference matching, or apply per-song key overrides.")
+                return
 
         if action == "export" and not self.output_dir_edit.text().strip():
             self.show_warning("Choose an export folder before exporting.")
@@ -1424,14 +1551,6 @@ class MainWindow(QMainWindow):
         self.start_worker(worker, action.replace("_", " ").title())
 
     def build_processing_options(self) -> ProcessingOptions:
-        bpm_value = None
-        bpm_text = self.target_bpm_edit.text().strip()
-        if bpm_text:
-            try:
-                bpm_value = float(bpm_text)
-            except ValueError:
-                bpm_value = None
-
         selected_stems = self.selected_stem_values()
         if not selected_stems or len(selected_stems) == len(self.stem_checkboxes):
             stem_option = "All stems"
@@ -1443,7 +1562,7 @@ class MainWindow(QMainWindow):
         return ProcessingOptions(
             stem_option=stem_option,
             selected_stems=selected_stems,
-            target_bpm=bpm_value,
+            target_bpm=self._parse_target_bpm_value(),
             target_key=self.target_key_combo.currentData(),
             match_to_reference=self.reference_checkbox.isChecked(),
             reference_song_path=self.reference_combo.currentData(),
@@ -1521,6 +1640,8 @@ class MainWindow(QMainWindow):
             self.stem_option_combo,
             self.output_dir_edit,
             self.output_browse_button,
+            self.apply_song_overrides_button,
+            self.clear_song_overrides_button,
             self.import_action,
             self.remove_action,
             self.clear_action,
@@ -1598,6 +1719,7 @@ class MainWindow(QMainWindow):
         key_column = 6
         relative_column = 7
         compatible_column = 8
+        override_tooltip = self._song_processing_override_tooltip(song)
         for column, value in enumerate(values):
             if column in {bpm_range_column, key_hint_column}:
                 continue
@@ -1609,6 +1731,10 @@ class MainWindow(QMainWindow):
             item.setText(str(value))
             if column == 0:
                 item.setIcon(self._icon("file"))
+                file_tooltip = song.file_path
+                if override_tooltip:
+                    file_tooltip = f"{file_tooltip}\n\n{override_tooltip}"
+                item.setToolTip(file_tooltip)
             if column == status_column:
                 item.setIcon(self._status_icon(song.status))
                 item.setForeground(self._status_color(song.status))
@@ -1625,10 +1751,15 @@ class MainWindow(QMainWindow):
             elif column == compatible_column:
                 item.setToolTip(f"Compatible Keys: {format_key_list(song.compatible_keys)}")
             elif column == status_column and song.status == SongStatus.ERROR.value:
-                item.setToolTip(song.last_error or "Task failed.")
+                status_tooltip = song.last_error or "Task failed."
+                if override_tooltip:
+                    status_tooltip = f"{status_tooltip}\n\n{override_tooltip}"
+                item.setToolTip(status_tooltip)
+            elif column == status_column and override_tooltip:
+                item.setToolTip(override_tooltip)
             elif column == status_column:
                 item.setToolTip("")
-            else:
+            elif column != 0:
                 item.setToolTip("")
 
     def _status_color(self, status: str) -> QColor:

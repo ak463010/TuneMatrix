@@ -87,6 +87,10 @@ class SongRecord:
     file_name: str
     bpm_range_label: str = BPM_RANGE_DEFAULT_LABEL
     analysis_key_hint: Optional[str] = None
+    processing_override_enabled: bool = False
+    processing_target_bpm: Optional[float] = None
+    processing_target_key: Optional[str] = None
+    processing_selected_stems: Optional[list[str]] = None
     duration: Optional[float] = None
     bpm: Optional[float] = None
     musical_key: Optional[str] = None
@@ -108,6 +112,10 @@ class SongRecord:
             "file_name": self.file_name,
             "bpm_range_label": self.bpm_range_label,
             "analysis_key_hint": self.analysis_key_hint,
+            "processing_override_enabled": self.processing_override_enabled,
+            "processing_target_bpm": self.processing_target_bpm,
+            "processing_target_key": self.processing_target_key,
+            "processing_selected_stems": list(self.processing_selected_stems) if self.processing_selected_stems else None,
             "duration": self.duration,
             "bpm": self.bpm,
             "musical_key": self.musical_key,
@@ -128,6 +136,14 @@ class SongRecord:
             file_name=file_name,
             bpm_range_label=str(data.get("bpm_range_label") or BPM_RANGE_DEFAULT_LABEL),
             analysis_key_hint=data.get("analysis_key_hint"),
+            processing_override_enabled=bool(data.get("processing_override_enabled", False)),
+            processing_target_bpm=data.get("processing_target_bpm"),
+            processing_target_key=data.get("processing_target_key"),
+            processing_selected_stems=(
+                list(data.get("processing_selected_stems"))
+                if isinstance(data.get("processing_selected_stems"), list)
+                else None
+            ),
             duration=data.get("duration"),
             bpm=data.get("bpm"),
             musical_key=data.get("musical_key"),

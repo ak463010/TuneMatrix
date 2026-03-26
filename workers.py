@@ -162,16 +162,18 @@ class ProcessingWorker(BaseWorker):
         self.log.emit(f"Starting {self.action.replace('_', ' ')} for {total} song(s).")
         for index, song in enumerate(self.songs, start=1):
             self.check_canceled()
+            song_target_bpm = self._effective_target_bpm(song, target_bpm)
+            song_target_key = self._effective_target_key(song, target_key)
 
             try:
                 if self.action == "separate":
                     self._separate(song)
                 elif self.action == "match_tempo":
-                    self._match_tempo(song, target_bpm)
+                    self._match_tempo(song, song_target_bpm)
                 elif self.action == "match_key":
-                    self._match_key(song, target_key)
+                    self._match_key(song, song_target_key)
                 elif self.action == "process_all":
-                    self._process_all(song, target_bpm, target_key)
+                    self._process_all(song, song_target_bpm, song_target_key)
                 elif self.action == "export":
                     self._export(song)
                 else:
@@ -202,9 +204,6 @@ class ProcessingWorker(BaseWorker):
                 raise AudioProcessingError("The selected reference song does not have a usable BPM.")
             return float(self.reference_song.bpm)
 
-        if self.action == "match_tempo" and (self.options.target_bpm is None or self.options.target_bpm <= 0):
-            raise AudioProcessingError("Set a target BPM or enable reference matching before running tempo matching.")
-
         return self.options.target_bpm
 
     def _resolve_target_key(self) -> Optional[str]:
@@ -219,10 +218,32 @@ class ProcessingWorker(BaseWorker):
                 raise AudioProcessingError("The selected reference song does not have a usable key.")
             return self.reference_song.musical_key
 
-        if self.action == "match_key" and not self.options.target_key:
-            raise AudioProcessingError("Choose a target key or enable reference matching before running key matching.")
-
         return self.options.target_key
+
+    def _effective_target_bpm(self, song: SongRecord, default_target_bpm: Optional[float]) -> Optional[float]:
+        if self.options.match_to_reference:
+            return default_target_bpm
+        if song.processing_override_enabled:
+            return song.processing_target_bpm
+        return default_target_bpm
+
+    def _effective_target_key(self, song: SongRecord, default_target_key: Optional[str]) -> Optional[str]:
+        if self.options.match_to_reference:
+            return default_target_key
+        if song.processing_override_enabled:
+            return song.processing_target_key
+        return default_target_key
+
+    def _effective_stem_settings(self, song: SongRecord) -> tuple[str, Optional[list[str]]]:
+        if not song.processing_override_enabled:
+            return self.options.stem_option, self.options.selected_stems
+
+        selected_stems = list(song.processing_selected_stems) if song.processing_selected_stems else None
+        if not selected_stems:
+            return "All stems", None
+        if len(selected_stems) == 1:
+            return selected_stems[0], selected_stems
+        return "All stems", selected_stems
 
     def _ensure_song_analysis(self, song: SongRecord) -> None:
         if song.duration is not None and song.bpm is not None and song.musical_key:
@@ -252,11 +273,12 @@ class ProcessingWorker(BaseWorker):
         return bool(self.reference_song and song.file_path == self.reference_song.file_path)
 
     def _separate(self, song: SongRecord) -> None:
+        stem_option, selected_stems = self._effective_stem_settings(song)
         self.update_song_status(song, SongStatus.SEPARATING.value)
         result = separate_song_stems(
             song,
-            self.options.stem_option,
-            selected_stems=self.options.selected_stems,
+            stem_option,
+            selected_stems=selected_stems,
             log_callback=self.log.emit,
             cancel_callback=self.is_canceled,
         )
@@ -315,12 +337,13 @@ class ProcessingWorker(BaseWorker):
     def _process_all(self, song: SongRecord, target_bpm: Optional[float], target_key: Optional[str]) -> None:
         self.update_song_status(song, SongStatus.PROCESSING.value)
         self._ensure_song_analysis(song)
+        stem_option, selected_stems = self._effective_stem_settings(song)
 
-        if self.options.stem_option:
+        if stem_option:
             result = separate_song_stems(
                 song,
-                self.options.stem_option,
-                selected_stems=self.options.selected_stems,
+                stem_option,
+                selected_stems=selected_stems,
                 log_callback=self.log.emit,
                 cancel_callback=self.is_canceled,
             )
