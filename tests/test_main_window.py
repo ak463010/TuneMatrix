@@ -113,10 +113,10 @@ class MainWindowTests(unittest.TestCase):
         self.assertIs(window.song_table.cellWidget(0, 2), bpm_range_combo)
         self.assertIs(window.song_table.cellWidget(0, 3), key_hint_combo)
         self.assertEqual(window.song_table.verticalHeader().defaultSectionSize(), 28)
-        self.assertEqual(bpm_range_combo.minimumHeight(), 22)
-        self.assertEqual(key_hint_combo.minimumHeight(), 22)
-        self.assertEqual(bpm_range_combo.maximumHeight(), 22)
-        self.assertEqual(key_hint_combo.maximumHeight(), 22)
+        self.assertEqual(bpm_range_combo.minimumHeight(), 20)
+        self.assertEqual(key_hint_combo.minimumHeight(), 20)
+        self.assertEqual(bpm_range_combo.maximumHeight(), 20)
+        self.assertEqual(key_hint_combo.maximumHeight(), 20)
 
     def test_build_processing_options_parses_form_values(self) -> None:
         window = self._build_window()

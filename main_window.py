@@ -1015,7 +1015,7 @@ class MainWindow(QMainWindow):
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setFixedHeight(22)
+        combo.setFixedHeight(20)
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.setMaxVisibleItems(len(BPM_RANGE_OPTIONS) + 2)
         combo.setToolTip("Choose a preset or use Enter BPM... for a manual value like 128 or 120-130.")
@@ -1033,7 +1033,7 @@ class MainWindow(QMainWindow):
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setFixedHeight(22)
+        combo.setFixedHeight(20)
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.addItem("Auto", None)
         for key_name in KEY_OPTIONS:
