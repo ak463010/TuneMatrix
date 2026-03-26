@@ -866,10 +866,21 @@ class MainWindow(QMainWindow):
                 alternate-background-color: #171e27;
                 background-color: #181f28;
                 border-radius: 7px;
+                selection-background-color: #28415d;
+                selection-color: #f4f7fc;
             }
             QTableWidget::item {
                 padding: 4px 6px;
                 border-bottom: 1px solid #10161d;
+            }
+            QTableWidget::item:selected {
+                background-color: #28415d;
+                color: #f4f7fc;
+            }
+            QTableWidget::item:selected:active,
+            QTableWidget::item:selected:!active {
+                background-color: #28415d;
+                color: #f4f7fc;
             }
             QProgressBar {
                 border: 1px solid #0c1016;
