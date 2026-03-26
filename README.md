@@ -6,7 +6,7 @@ The current codebase focuses on:
 
 - importing multiple songs
 - saving and loading project sessions
-- analyzing duration, BPM, and rough key
+- analyzing duration, BPM, rough key, relative key, and compatible keys
 - separating stems with Demucs
 - matching tempo
 - matching key tonic with pitch shifting
@@ -20,6 +20,7 @@ This repository is currently an MVP with tests and documentation.
 What works now:
 
 - `wav` and `flac` import and analysis
+- analysis populates detected key plus derived relative and compatible keys
 - worker-threaded analyze, tempo match, key shift, and export flows
 - project save/load with song state and control settings persisted to JSON
 - dependency-aware UI gating for unsupported actions
@@ -32,6 +33,7 @@ What still depends on external tools:
 - higher-quality tempo and key processing prefers `rubberband`
 - stem separation requires the Demucs and PyTorch runtime to be installed
 - exact major/minor mode conversion is not implemented; key matching currently pitch-shifts tonic and keeps the existing mode
+- compatible keys are derived from the detected key using a circle-of-fifths style heuristic, not deep harmonic analysis
 
 See [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) for more detail.
 

@@ -9,6 +9,8 @@ from audio_processing import (
     TaskCanceledError,
     analyze_audio,
     export_song_artifacts,
+    get_compatible_keys,
+    get_relative_key,
     match_song_key,
     match_song_tempo,
     separate_song_stems,
@@ -44,6 +46,21 @@ class BaseWorker(QObject):
         song.last_error = last_error
         self.song_updated.emit(song)
 
+    def apply_analysis_metadata(self, song: SongRecord, result: dict[str, object]) -> None:
+        song.duration = float(result.get("duration") or 0.0)
+        song.bpm = float(result.get("bpm") or 0.0)
+        song.musical_key = str(result.get("key") or "")
+        song.relative_key = str(result.get("relative_key") or "") or None
+        song.compatible_keys = list(result.get("compatible_keys") or [])
+
+    def ensure_key_relationships(self, song: SongRecord) -> None:
+        if not song.musical_key:
+            song.relative_key = None
+            song.compatible_keys = []
+            return
+        song.relative_key = get_relative_key(song.musical_key)
+        song.compatible_keys = get_compatible_keys(song.musical_key)
+
 
 class AnalyzeWorker(BaseWorker):
     def __init__(self, songs: list[SongRecord]) -> None:
@@ -77,9 +94,7 @@ class AnalyzeWorker(BaseWorker):
 
             try:
                 result = analyze_audio(song.file_path)
-                song.duration = float(result["duration"] or 0.0)
-                song.bpm = float(result["bpm"] or 0.0)
-                song.musical_key = str(result["key"] or "")
+                self.apply_analysis_metadata(song, result)
                 song.last_error = None
                 song.status = SongStatus.ANALYZED.value
                 successful += 1
@@ -200,16 +215,19 @@ class ProcessingWorker(BaseWorker):
 
     def _ensure_song_analysis(self, song: SongRecord) -> None:
         if song.duration is not None and song.bpm is not None and song.musical_key:
+            self.ensure_key_relationships(song)
             return
 
         self.log.emit(f"Analyzing missing metadata for {song.file_name}.")
         result = analyze_audio(song.processed_path or song.file_path)
         if song.duration is None:
-            song.duration = float(result["duration"] or 0.0)
+            song.duration = float(result.get("duration") or 0.0)
         if song.bpm is None or song.bpm <= 0:
-            song.bpm = float(result["bpm"] or 0.0)
+            song.bpm = float(result.get("bpm") or 0.0)
         if not song.musical_key:
-            song.musical_key = str(result["key"] or "")
+            song.musical_key = str(result.get("key") or "")
+        song.relative_key = str(result.get("relative_key") or "") or None
+        song.compatible_keys = list(result.get("compatible_keys") or [])
         if song.status != SongStatus.ERROR.value:
             song.status = SongStatus.ANALYZED.value
             song.last_error = None
@@ -267,6 +285,8 @@ class ProcessingWorker(BaseWorker):
         song.processed_path = str(result["output_path"])
         song.duration = float(result["duration"])
         song.musical_key = str(result["key"])
+        song.relative_key = str(result.get("relative_key") or "") or None
+        song.compatible_keys = list(result.get("compatible_keys") or [])
         song.status = SongStatus.READY.value
         song.last_error = None
         self.song_updated.emit(song)
@@ -306,6 +326,8 @@ class ProcessingWorker(BaseWorker):
             song.processed_path = str(key_result["output_path"])
             song.duration = float(key_result["duration"])
             song.musical_key = str(key_result["key"])
+            song.relative_key = str(key_result.get("relative_key") or "") or None
+            song.compatible_keys = list(key_result.get("compatible_keys") or [])
             self.song_updated.emit(song)
         elif target_key:
             self.log.emit(f"Skipping key match for reference song {song.file_name}.")

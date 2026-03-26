@@ -114,6 +114,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["format_version"], PROJECT_STATE_VERSION)
         self.assertEqual(len(state["songs"]), 1)
         self.assertEqual(state["songs"][0]["file_name"], "demo.wav")
+        self.assertEqual(state["songs"][0]["relative_key"], None)
+        self.assertEqual(state["songs"][0]["compatible_keys"], [])
         self.assertEqual(state["ui"]["target_bpm_text"], "126")
         self.assertEqual(state["ui"]["target_key"], "A Minor")
         self.assertEqual(state["ui"]["stem_option"], "Vocals")
@@ -139,6 +141,8 @@ class MainWindowTests(unittest.TestCase):
                             "duration": 91.2,
                             "bpm": 128.0,
                             "musical_key": "C Minor",
+                            "relative_key": "D# Major",
+                            "compatible_keys": ["G Minor", "A# Major", "F Minor"],
                             "status": "Analyzed",
                             "stems_dir": None,
                             "processed_path": None,
@@ -164,6 +168,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.target_key_combo.currentData(), "C Minor")
         self.assertEqual(window.stem_option_combo.currentData(), "All stems")
         self.assertEqual(window.selected_stem_values(), ["Drums", "Bass"])
+        self.assertEqual(window.song_table.item(0, 5).text(), "D# Major")
+        self.assertEqual(window.song_table.item(0, 6).text(), "G Minor, A# Major, F Minor")
         self.assertTrue(window.reference_checkbox.isChecked())
         self.assertEqual(window.reference_combo.currentData(), str(wav_path))
         self.assertEqual(window.output_dir_edit.text(), "D:/processed")

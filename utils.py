@@ -48,6 +48,12 @@ def format_key(key_name: Optional[str]) -> str:
     return key_name or "N/A"
 
 
+def format_key_list(keys: Optional[list[str]]) -> str:
+    if not keys:
+        return "N/A"
+    return ", ".join(keys)
+
+
 def safe_stem(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
     return cleaned.strip("._") or "item"

@@ -33,12 +33,14 @@ Equivalent direct command:
 ### Utility tests
 
 - duration, BPM, and key formatting
+- key-list formatting
 - filename and path helpers
 - supported-file validation
 
 ### Audio processing tests
 
 - metadata analysis for a generated `wav`
+- relative-key and compatible-key helper mapping
 - dependency gating for `ffmpeg` and the active Demucs runtime stack
 - tempo matching
 - key shifting
@@ -50,6 +52,7 @@ Equivalent direct command:
 - processing option parsing
 - duplicate import handling
 - blocking an action when runtime issues exist
+- project-state persistence of analyzed key-relationship columns
 
 ## CI
 

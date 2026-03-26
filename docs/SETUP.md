@@ -100,7 +100,7 @@ After setup:
 
 1. Launch the app.
 2. Import a `wav` file first.
-3. Run `Analyze`.
+3. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
 4. Run `Match Tempo` or `Match Key`.
 5. Export the result.
 

@@ -15,6 +15,8 @@ from audio_processing import (
     action_runtime_issues,
     analyze_audio,
     export_song_artifacts,
+    get_compatible_keys,
+    get_relative_key,
     match_song_key,
     match_song_tempo,
     separate_song_stems,
@@ -39,6 +41,20 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertGreater(result["duration"], 1.5)
             self.assertIsInstance(result["bpm"], float)
             self.assertTrue(result["key"])
+            self.assertEqual(result["relative_key"], get_relative_key(result["key"]))
+            self.assertEqual(result["compatible_keys"], get_compatible_keys(result["key"]))
+
+    def test_key_relationship_helpers_return_relative_and_compatible_keys(self) -> None:
+        self.assertEqual(get_relative_key("C Major"), "A Minor")
+        self.assertEqual(get_relative_key("A Minor"), "C Major")
+        self.assertEqual(
+            get_compatible_keys("C Major"),
+            ["A Minor", "G Major", "E Minor", "F Major", "D Minor"],
+        )
+        self.assertEqual(
+            get_compatible_keys("A Minor"),
+            ["C Major", "E Minor", "G Major", "D Minor", "F Major"],
+        )
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {

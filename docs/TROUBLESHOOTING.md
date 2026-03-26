@@ -75,6 +75,22 @@ The app currently:
 
 So a request like `A Major -> C Minor` will move the tonic toward `C`, but it will not perform full reharmonization into a real minor mode.
 
+## Relative or Compatible Keys Look Wrong
+
+Cause:
+
+- the app first performs rough key detection
+- relative and compatible keys are then derived from that detected key
+
+Effect:
+
+- if the detected key is wrong, the relative and compatible suggestions will also be wrong
+
+Notes:
+
+- the relative key is the strict major/minor pair for the detected key
+- compatible keys are generated from a circle-of-fifths style heuristic, not full musical analysis
+
 ## Tests Fail on Headless Machines
 
 Set:

@@ -202,7 +202,7 @@ def _require_decode_support(file_path: str) -> None:
         raise DependencyError(f"ffmpeg is required to decode {suffix} files. Install ffmpeg or use wav/flac.")
 
 
-def analyze_audio(file_path: str) -> dict[str, Optional[float | str]]:
+def analyze_audio(file_path: str) -> dict[str, object]:
     _require_analysis_stack()
     _require_decode_support(file_path)
 
@@ -211,10 +211,14 @@ def analyze_audio(file_path: str) -> dict[str, Optional[float | str]]:
     tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if tempo is not None else None
     key_name = detect_key(audio, sample_rate)
+    relative_key = get_relative_key(key_name)
+    compatible_keys = get_compatible_keys(key_name)
     return {
         "duration": duration,
         "bpm": bpm,
         "key": key_name,
+        "relative_key": relative_key,
+        "compatible_keys": compatible_keys,
     }
 
 
@@ -432,6 +436,49 @@ def _split_key_name(key_name: str) -> tuple[str, str]:
     return note_name, mode
 
 
+def _build_key_name(note_index: int, mode: str) -> str:
+    return f"{NOTE_NAMES[note_index % len(NOTE_NAMES)]} {mode}"
+
+
+def get_relative_key(key_name: Optional[str]) -> Optional[str]:
+    if not key_name:
+        return None
+    note_name, mode = _split_key_name(key_name)
+    note_index = NOTE_NAMES.index(note_name)
+    if mode == "Major":
+        return _build_key_name(note_index + 9, "Minor")
+    return _build_key_name(note_index + 3, "Major")
+
+
+def get_compatible_keys(key_name: Optional[str]) -> list[str]:
+    if not key_name:
+        return []
+
+    note_name, mode = _split_key_name(key_name)
+    note_index = NOTE_NAMES.index(note_name)
+    relative_key = get_relative_key(key_name)
+    clockwise_index = note_index + 7
+    counterclockwise_index = note_index - 7
+    clockwise_same_mode = _build_key_name(clockwise_index, mode)
+    counterclockwise_same_mode = _build_key_name(counterclockwise_index, mode)
+    clockwise_relative = get_relative_key(clockwise_same_mode)
+    counterclockwise_relative = get_relative_key(counterclockwise_same_mode)
+
+    ordered_candidates = [
+        relative_key,
+        clockwise_same_mode,
+        clockwise_relative,
+        counterclockwise_same_mode,
+        counterclockwise_relative,
+    ]
+    compatible_keys: list[str] = []
+    for candidate in ordered_candidates:
+        if not candidate or candidate == key_name or candidate in compatible_keys:
+            continue
+        compatible_keys.append(candidate)
+    return compatible_keys
+
+
 def calculate_semitones(source_key: str, target_key: str) -> tuple[int, bool]:
     source_note, source_mode = _split_key_name(source_key)
     target_note, target_mode = _split_key_name(target_key)
@@ -506,6 +553,8 @@ def match_song_key(
     semitones, same_mode = calculate_semitones(source_key, target_key)
     resolved_key = target_key if same_mode else f"{target_note} {source_mode}"
     if semitones == 0:
+        relative_key = get_relative_key(resolved_key)
+        compatible_keys = get_compatible_keys(resolved_key)
         if not same_mode:
             _log(
                 log_callback,
@@ -514,7 +563,14 @@ def match_song_key(
         else:
             _log(log_callback, f"{song.file_name} already matches the target key.")
         duration = song.duration or 0.0
-        return {"output_path": source_path, "duration": duration, "key": resolved_key, "mode_matched": same_mode}
+        return {
+            "output_path": source_path,
+            "duration": duration,
+            "key": resolved_key,
+            "relative_key": relative_key,
+            "compatible_keys": compatible_keys,
+            "mode_matched": same_mode,
+        }
 
     audio, sample_rate = _load_audio_for_processing(source_path)
     shifted = _pitch_shift(audio, sample_rate, semitones, log_callback=log_callback)
@@ -528,7 +584,14 @@ def match_song_key(
             log_callback,
             f"{song.file_name} was shifted to the target tonic, but the mode remains {source_mode}.",
         )
-    return {"output_path": saved_path, "duration": duration, "key": resolved_key, "mode_matched": same_mode}
+    return {
+        "output_path": saved_path,
+        "duration": duration,
+        "key": resolved_key,
+        "relative_key": get_relative_key(resolved_key),
+        "compatible_keys": get_compatible_keys(resolved_key),
+        "mode_matched": same_mode,
+    }
 
 
 def separate_song_stems(

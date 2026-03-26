@@ -18,7 +18,7 @@ The central model is `SongRecord` in [models.py](../models.py).
 Each record stores:
 
 - original file path and file name
-- analyzed metadata such as duration, BPM, and key
+- analyzed metadata such as duration, BPM, detected key, relative key, and compatible keys
 - current UI status
 - generated stems directory
 - processed output path
@@ -65,7 +65,7 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 
 1. `MainWindow` creates `AnalyzeWorker`
 2. worker calls `analyze_audio`
-3. duration, BPM, and rough key are written back to the `SongRecord`
+3. duration, BPM, rough key, relative key, and compatible keys are written back to the `SongRecord`
 4. UI updates the table row
 
 ### Separate Stems
@@ -122,4 +122,4 @@ The window:
 
 ## Current Limitation
 
-Key matching is currently tonic-based pitch shifting. It does not perform true harmonic mode conversion between major and minor.
+Key matching is currently tonic-based pitch shifting. It does not perform true harmonic mode conversion between major and minor. Relative and compatible keys are derived from the detected key, so their quality is limited by the rough key detection step.

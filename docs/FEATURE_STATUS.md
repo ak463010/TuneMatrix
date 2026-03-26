@@ -20,13 +20,15 @@ This file describes the current implementation status against the requested feat
 - save and load project sessions
 - remove selected
 - clear list
-- table columns for file name, full path, duration, BPM, key, and status
+- table columns for file name, full path, duration, BPM, key, relative key, compatible keys, and status
 
 ### Analysis
 
 - duration detection with `librosa`
 - BPM estimation with `librosa`
 - rough key detection using chroma features
+- relative key derived from the detected key
+- compatible-key list derived from the detected key using circle-of-fifths neighbors and relative major/minor relationships
 - background worker execution through `QThread`
 
 ### Processing
@@ -53,12 +55,13 @@ This file describes the current implementation status against the requested feat
 Current behavior:
 
 - tonic can be pitch-shifted
+- relative key and compatible keys are shown after analysis
 - current mode is preserved
 
 Not fully implemented yet:
 
 - exact scale conversion between major and minor
-- harmonic analysis beyond rough key detection
+- harmonic analysis beyond rough key detection and derived key-relationship heuristics
 
 ### Stem Separation
 

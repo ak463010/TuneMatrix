@@ -11,6 +11,8 @@ TABLE_HEADERS = [
     "Duration",
     "BPM",
     "Key",
+    "Relative",
+    "Compatible",
     "Status",
 ]
 
@@ -72,6 +74,8 @@ class SongRecord:
     duration: Optional[float] = None
     bpm: Optional[float] = None
     musical_key: Optional[str] = None
+    relative_key: Optional[str] = None
+    compatible_keys: Optional[list[str]] = None
     status: str = SongStatus.IMPORTED.value
     stems_dir: Optional[str] = None
     processed_path: Optional[str] = None
@@ -89,6 +93,8 @@ class SongRecord:
             "duration": self.duration,
             "bpm": self.bpm,
             "musical_key": self.musical_key,
+            "relative_key": self.relative_key,
+            "compatible_keys": list(self.compatible_keys or []),
             "status": self.status,
             "stems_dir": self.stems_dir,
             "processed_path": self.processed_path,
@@ -105,6 +111,8 @@ class SongRecord:
             duration=data.get("duration"),
             bpm=data.get("bpm"),
             musical_key=data.get("musical_key"),
+            relative_key=data.get("relative_key"),
+            compatible_keys=list(data.get("compatible_keys") or []),
             status=str(data.get("status") or SongStatus.IMPORTED.value),
             stems_dir=data.get("stems_dir"),
             processed_path=data.get("processed_path"),

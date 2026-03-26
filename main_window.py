@@ -34,7 +34,15 @@ from PySide6.QtWidgets import (
 
 from audio_processing import action_base_requirement_message, action_runtime_issues, dependency_status_lines
 from models import KEY_OPTIONS, ProcessingOptions, SongRecord, SongStatus, STEM_OPTIONS, TABLE_HEADERS
-from utils import default_export_dir, format_bpm, format_duration, format_key, is_supported_audio_file, validate_audio_file
+from utils import (
+    default_export_dir,
+    format_bpm,
+    format_duration,
+    format_key,
+    format_key_list,
+    is_supported_audio_file,
+    validate_audio_file,
+)
 from workers import AnalyzeWorker, ProcessingWorker
 
 PROJECT_STATE_VERSION = 1
@@ -419,6 +427,8 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
 
         self.song_table.setColumnHidden(1, True)
 
@@ -1389,8 +1399,14 @@ class MainWindow(QMainWindow):
             format_duration(song.duration),
             format_bpm(song.bpm),
             format_key(song.musical_key),
+            format_key(song.relative_key),
+            format_key_list(song.compatible_keys),
             song.status,
         ]
+        status_column = len(values) - 1
+        key_column = 4
+        relative_column = 5
+        compatible_column = 6
         for column, value in enumerate(values):
             item = self.song_table.item(row, column)
             if item is None:
@@ -1400,14 +1416,26 @@ class MainWindow(QMainWindow):
             item.setText(str(value))
             if column == 0:
                 item.setIcon(self._icon("file"))
-            if column == 5:
+            if column == status_column:
                 item.setIcon(self._status_icon(song.status))
                 item.setForeground(self._status_color(song.status))
             else:
                 item.setForeground(QColor("#eef3fb"))
-            if column == 5 and song.status == SongStatus.ERROR.value:
+            if column == key_column:
+                item.setToolTip(
+                    f"Detected: {format_key(song.musical_key)}\n"
+                    f"Relative: {format_key(song.relative_key)}\n"
+                    f"Compatible: {format_key_list(song.compatible_keys)}"
+                )
+            elif column == relative_column:
+                item.setToolTip(format_key(song.relative_key))
+            elif column == compatible_column:
+                item.setToolTip(format_key_list(song.compatible_keys))
+            elif column == status_column and song.status == SongStatus.ERROR.value:
                 item.setToolTip(song.last_error or "Task failed.")
-            elif column == 5:
+            elif column == status_column:
+                item.setToolTip("")
+            else:
                 item.setToolTip("")
 
     def _status_color(self, status: str) -> QColor:
