@@ -1334,6 +1334,42 @@ class MainWindow(QMainWindow):
                 self._populate_song_row(row, song)
         return songs
 
+    @staticmethod
+    def _normalize_selection_value(value: object) -> object:
+        if isinstance(value, list):
+            return tuple(value)
+        if isinstance(value, set):
+            return tuple(sorted(value))
+        return value
+
+    def _selection_has_mixed_values(self, extractor) -> bool:
+        songs = self.selected_songs()
+        if len(songs) <= 1:
+            return False
+
+        normalized_values = {
+            self._normalize_selection_value(extractor(song))
+            for song in songs
+        }
+        return len(normalized_values) > 1
+
+    def _confirm_override_for_mixed_selection(self, field_label: str, extractor) -> bool:
+        songs = self.selected_songs()
+        if len(songs) <= 1 or not self._selection_has_mixed_values(extractor):
+            return True
+
+        result = QMessageBox.question(
+            self,
+            "TuneMatrix",
+            (
+                f"The selected songs currently have different {field_label} values.\n\n"
+                f"Apply this change to all {len(songs)} selected songs?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return result == QMessageBox.StandardButton.Yes
+
     def _apply_target_bpm_to_selection(self) -> None:
         bpm_text = self.target_bpm_edit.text().strip()
         bpm_value = self._parse_target_bpm_value()
@@ -1346,6 +1382,10 @@ class MainWindow(QMainWindow):
             self._load_processing_editor_from_selection()
             return
 
+        if not self._confirm_override_for_mixed_selection("Target BPM", lambda song: song.processing_target_bpm):
+            self._load_processing_editor_from_selection()
+            return
+
         songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "processing_target_bpm", bpm_value))
         if songs:
             self._load_processing_editor_from_selection()
@@ -1355,6 +1395,10 @@ class MainWindow(QMainWindow):
         if target_key == "__mixed__":
             return
 
+        if not self._confirm_override_for_mixed_selection("Target Key", lambda song: song.processing_target_key):
+            self._load_processing_editor_from_selection()
+            return
+
         songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "processing_target_key", target_key))
         if songs:
             self._load_processing_editor_from_selection()
@@ -1362,6 +1406,10 @@ class MainWindow(QMainWindow):
     def _apply_reference_song_to_selection(self) -> None:
         reference_path = self.reference_combo.currentData()
         if reference_path == "__mixed__":
+            return
+
+        if not self._confirm_override_for_mixed_selection("Reference Song", lambda song: song.reference_song_path):
+            self._load_processing_editor_from_selection()
             return
 
         songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "reference_song_path", reference_path))
@@ -1381,6 +1429,13 @@ class MainWindow(QMainWindow):
 
         selected_stems = [stem_name for stem_name, state in selected_states.items() if state == Qt.CheckState.Checked]
         normalized_stems = None if not selected_stems or len(selected_stems) == len(self.stem_checkboxes) else selected_stems
+
+        if not self._confirm_override_for_mixed_selection(
+            "Stem Selection",
+            lambda song: self._song_selected_stem_values(song),
+        ):
+            self._load_processing_editor_from_selection()
+            return
 
         songs = self._apply_processing_field_to_selected_songs(
             lambda song: setattr(song, "processing_selected_stems", list(normalized_stems) if normalized_stems is not None else None)

@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QItemSelectionModel, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
 
@@ -239,6 +239,34 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.songs[1].processing_target_key, "C Major")
         self.assertEqual(window.songs[0].reference_song_path, str(paths[2].resolve()))
         self.assertEqual(window.songs[1].reference_song_path, str(paths[2].resolve()))
+
+    def test_mixed_multi_selection_prompts_before_overriding_target_key(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.songs[0].processing_target_key = "A Minor"
+        window.songs[1].processing_target_key = "C Major"
+        self._select_rows(window, [0, 1])
+
+        with patch("main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.No):
+            window.target_key_combo.setCurrentText("G Major")
+
+        self.assertEqual(window.songs[0].processing_target_key, "A Minor")
+        self.assertEqual(window.songs[1].processing_target_key, "C Major")
+        self.assertEqual(window.target_key_combo.currentText(), "Mixed")
+
+    def test_mixed_multi_selection_can_confirm_override(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.songs[0].processing_target_bpm = 120.0
+        window.songs[1].processing_target_bpm = 140.0
+        self._select_rows(window, [0, 1])
+
+        with patch("main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.Yes):
+            window.target_bpm_edit.setText("128")
+            window.target_bpm_edit.editingFinished.emit()
+
+        self.assertEqual(window.songs[0].processing_target_bpm, 128.0)
+        self.assertEqual(window.songs[1].processing_target_bpm, 128.0)
 
     def test_output_folder_stays_global_when_selection_changes(self) -> None:
         window = self._build_window()
