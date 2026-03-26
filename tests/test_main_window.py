@@ -38,9 +38,17 @@ class MainWindowTests(unittest.TestCase):
 
     def test_clickable_controls_use_pointing_hand_cursor(self) -> None:
         window = self._build_window()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "cursor.wav"
+            wav_path.write_bytes(b"test")
+            window.import_songs([str(wav_path)])
+            bpm_range_combo = window.song_table.cellWidget(0, 2)
+            key_hint_combo = window.song_table.cellWidget(0, 3)
 
         self.assertEqual(window.import_button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.reference_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(bpm_range_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(key_hint_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.target_key_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.song_table.viewport().cursor().shape(), Qt.CursorShape.ArrowCursor)
         self.assertTrue(window.song_table.hasMouseTracking())
@@ -101,7 +109,11 @@ class MainWindowTests(unittest.TestCase):
             wav_path = Path(temp_dir) / "demo.wav"
             wav_path.write_bytes(b"test")
             window.import_songs([str(wav_path)])
+            bpm_range_combo = window.song_table.cellWidget(0, 2)
+            key_hint_combo = window.song_table.cellWidget(0, 3)
 
+        bpm_range_combo.setCurrentText("90 - 120 BPM")
+        key_hint_combo.setCurrentText("G Major")
         window.target_bpm_edit.setText("126")
         window.target_key_combo.setCurrentText("A Minor")
         window.stem_option_combo.setCurrentText("Vocals")
@@ -114,6 +126,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["format_version"], PROJECT_STATE_VERSION)
         self.assertEqual(len(state["songs"]), 1)
         self.assertEqual(state["songs"][0]["file_name"], "demo.wav")
+        self.assertEqual(state["songs"][0]["bpm_range_label"], "90 - 120 BPM")
+        self.assertEqual(state["songs"][0]["analysis_key_hint"], "G Major")
         self.assertEqual(state["songs"][0]["relative_key"], None)
         self.assertEqual(state["songs"][0]["compatible_keys"], [])
         self.assertEqual(state["ui"]["target_bpm_text"], "126")
@@ -138,6 +152,8 @@ class MainWindowTests(unittest.TestCase):
                         {
                             "file_path": str(wav_path),
                             "file_name": "restored.wav",
+                            "bpm_range_label": "140 - 160 BPM",
+                            "analysis_key_hint": "G Minor",
                             "duration": 91.2,
                             "bpm": 128.0,
                             "musical_key": "C Minor",
@@ -164,12 +180,14 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(len(window.songs), 1)
         self.assertEqual(window.song_table.rowCount(), 1)
         self.assertEqual(window.song_table.item(0, 0).text(), "restored.wav")
+        self.assertEqual(window.song_table.cellWidget(0, 2).currentText(), "140 - 160 BPM")
+        self.assertEqual(window.song_table.cellWidget(0, 3).currentData(), "G Minor")
         self.assertEqual(window.target_bpm_edit.text(), "128")
         self.assertEqual(window.target_key_combo.currentData(), "C Minor")
         self.assertEqual(window.stem_option_combo.currentData(), "All stems")
         self.assertEqual(window.selected_stem_values(), ["Drums", "Bass"])
-        self.assertEqual(window.song_table.item(0, 5).text(), "D# Major")
-        self.assertEqual(window.song_table.item(0, 6).text(), "G Minor, A# Major, F Minor")
+        self.assertEqual(window.song_table.item(0, 7).text(), "D# Major")
+        self.assertEqual(window.song_table.item(0, 8).text(), "G Minor, A# Major, F Minor")
         self.assertTrue(window.reference_checkbox.isChecked())
         self.assertEqual(window.reference_combo.currentData(), str(wav_path))
         self.assertEqual(window.output_dir_edit.text(), "D:/processed")
@@ -184,6 +202,8 @@ class MainWindowTests(unittest.TestCase):
             wav_path.write_bytes(b"test")
 
             source_window.import_songs([str(wav_path)])
+            source_window.song_table.cellWidget(0, 2).setCurrentText("60 - 90 BPM")
+            source_window.song_table.cellWidget(0, 3).setCurrentText("A Minor")
             source_window.target_bpm_edit.setText("110")
             source_window.target_key_combo.setCurrentText("G Major")
             source_window.stem_option_combo.setCurrentText("Drums")
@@ -196,6 +216,8 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(len(restored_window.songs), 1)
         self.assertEqual(restored_window.songs[0].file_name, "roundtrip.wav")
+        self.assertEqual(restored_window.song_table.cellWidget(0, 2).currentText(), "60 - 90 BPM")
+        self.assertEqual(restored_window.song_table.cellWidget(0, 3).currentData(), "A Minor")
         self.assertEqual(restored_window.target_bpm_edit.text(), "110")
         self.assertEqual(restored_window.target_key_combo.currentData(), "G Major")
         self.assertEqual(restored_window.stem_option_combo.currentData(), "Drums")

@@ -21,6 +21,7 @@ What works now:
 
 - `wav` and `flac` import and analysis
 - analysis populates detected key plus derived relative and compatible keys
+- analysis supports per-song `BPM Range` and `Key Hint` table columns, both defaulting to `Auto`
 - worker-threaded analyze, tempo match, key shift, and export flows
 - project save/load with song state and control settings persisted to JSON
 - dependency-aware UI gating for unsupported actions

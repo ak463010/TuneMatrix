@@ -20,13 +20,15 @@ This file describes the current implementation status against the requested feat
 - save and load project sessions
 - remove selected
 - clear list
-- table columns for file name, full path, duration, BPM, key, relative key, compatible keys, and status
+- table columns for file name, full path, per-song BPM range hint, per-song key hint, duration, BPM, key, relative key, compatible keys, and status
 
 ### Analysis
 
 - duration detection with `librosa`
 - BPM estimation with `librosa`
+- optional per-song BPM-range hint to reduce half-time/double-time BPM ambiguity
 - rough key detection using chroma features
+- optional per-song key-hint dropdown used as a soft tie-breaker when detection is close
 - relative key derived from the detected key
 - compatible-key list derived from the detected key using circle-of-fifths neighbors and relative major/minor relationships
 - background worker execution through `QThread`

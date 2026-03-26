@@ -19,6 +19,7 @@ from audio_processing import (
     get_relative_key,
     match_song_key,
     match_song_tempo,
+    normalize_bpm_to_range_hint,
     separate_song_stems,
 )
 from models import SongRecord
@@ -55,6 +56,10 @@ class AudioProcessingTests(unittest.TestCase):
             get_compatible_keys("A Minor"),
             ["C Major", "E Minor", "G Major", "D Minor", "F Major"],
         )
+
+    def test_normalize_bpm_to_range_hint_prefers_value_inside_selected_band(self) -> None:
+        self.assertEqual(normalize_bpm_to_range_hint(75.0, (140.0, 160.0)), 150.0)
+        self.assertEqual(normalize_bpm_to_range_hint(128.0, None), 128.0)
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {

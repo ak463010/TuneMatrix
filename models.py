@@ -8,6 +8,8 @@ from typing import Any, Optional
 TABLE_HEADERS = [
     "File name",
     "Full path",
+    "BPM Range",
+    "Key Hint",
     "Duration",
     "BPM",
     "Key",
@@ -52,6 +54,16 @@ KEY_OPTIONS = [
     "B Minor",
 ]
 
+BPM_RANGE_OPTIONS = [
+    ("Auto", None),
+    ("60 - 90 BPM", (60.0, 90.0)),
+    ("90 - 120 BPM", (90.0, 120.0)),
+    ("120 - 140 BPM", (120.0, 140.0)),
+    ("140 - 160 BPM", (140.0, 160.0)),
+    ("160 - 190 BPM", (160.0, 190.0)),
+]
+BPM_RANGE_DEFAULT_LABEL = "Auto"
+
 
 class SongStatus(str, Enum):
     IMPORTED = "Imported"
@@ -71,6 +83,8 @@ class SongStatus(str, Enum):
 class SongRecord:
     file_path: str
     file_name: str
+    bpm_range_label: str = BPM_RANGE_DEFAULT_LABEL
+    analysis_key_hint: Optional[str] = None
     duration: Optional[float] = None
     bpm: Optional[float] = None
     musical_key: Optional[str] = None
@@ -90,6 +104,8 @@ class SongRecord:
         return {
             "file_path": self.file_path,
             "file_name": self.file_name,
+            "bpm_range_label": self.bpm_range_label,
+            "analysis_key_hint": self.analysis_key_hint,
             "duration": self.duration,
             "bpm": self.bpm,
             "musical_key": self.musical_key,
@@ -108,6 +124,8 @@ class SongRecord:
         return cls(
             file_path=file_path,
             file_name=file_name,
+            bpm_range_label=str(data.get("bpm_range_label") or BPM_RANGE_DEFAULT_LABEL),
+            analysis_key_hint=data.get("analysis_key_hint"),
             duration=data.get("duration"),
             bpm=data.get("bpm"),
             musical_key=data.get("musical_key"),
@@ -129,3 +147,11 @@ class ProcessingOptions:
     match_to_reference: bool = False
     reference_song_path: Optional[str] = None
     output_dir: Optional[str] = None
+
+
+def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:
+    normalized = str(label or BPM_RANGE_DEFAULT_LABEL).strip()
+    for option_label, option_range in BPM_RANGE_OPTIONS:
+        if option_label == normalized:
+            return option_range
+    return None

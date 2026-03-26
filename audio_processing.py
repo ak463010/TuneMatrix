@@ -202,7 +202,37 @@ def _require_decode_support(file_path: str) -> None:
         raise DependencyError(f"ffmpeg is required to decode {suffix} files. Install ffmpeg or use wav/flac.")
 
 
-def analyze_audio(file_path: str) -> dict[str, object]:
+def normalize_bpm_to_range_hint(
+    bpm: Optional[float],
+    bpm_range_hint: Optional[tuple[float, float]],
+) -> Optional[float]:
+    if bpm is None or bpm <= 0 or bpm_range_hint is None:
+        return bpm
+
+    min_bpm, max_bpm = bpm_range_hint
+    if min_bpm <= 0 or max_bpm <= 0 or min_bpm >= max_bpm:
+        return bpm
+
+    candidates = [float(bpm * (2**shift)) for shift in range(-3, 4)]
+    in_range = [candidate for candidate in candidates if min_bpm <= candidate <= max_bpm]
+    if in_range:
+        return min(in_range, key=lambda candidate: abs(candidate - bpm))
+
+    def distance_to_range(candidate: float) -> float:
+        if candidate < min_bpm:
+            return min_bpm - candidate
+        if candidate > max_bpm:
+            return candidate - max_bpm
+        return 0.0
+
+    return min(candidates, key=lambda candidate: (distance_to_range(candidate), abs(candidate - bpm)))
+
+
+def analyze_audio(
+    file_path: str,
+    bpm_range_hint: Optional[tuple[float, float]] = None,
+    key_hint: Optional[str] = None,
+) -> dict[str, object]:
     _require_analysis_stack()
     _require_decode_support(file_path)
 
@@ -210,7 +240,8 @@ def analyze_audio(file_path: str) -> dict[str, object]:
     duration = float(librosa.get_duration(y=audio, sr=sample_rate))
     tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if tempo is not None else None
-    key_name = detect_key(audio, sample_rate)
+    bpm = normalize_bpm_to_range_hint(bpm, bpm_range_hint)
+    key_name = detect_key(audio, sample_rate, key_hint=key_hint)
     relative_key = get_relative_key(key_name)
     compatible_keys = get_compatible_keys(key_name)
     return {
@@ -222,7 +253,7 @@ def analyze_audio(file_path: str) -> dict[str, object]:
     }
 
 
-def detect_key(audio: "np.ndarray", sample_rate: int) -> Optional[str]:
+def detect_key(audio: "np.ndarray", sample_rate: int, key_hint: Optional[str] = None) -> Optional[str]:
     _require_analysis_stack()
 
     if audio.size == 0:
@@ -243,17 +274,21 @@ def detect_key(audio: "np.ndarray", sample_rate: int) -> Optional[str]:
     major_template /= major_template.sum()
     minor_template /= minor_template.sum()
 
-    best_score = float("-inf")
-    best_key = None
+    scored_keys: dict[str, float] = {}
     for note_index, note_name in enumerate(NOTE_NAMES):
         major_score = float(np.dot(pitch_profile, np.roll(major_template, note_index)))
         minor_score = float(np.dot(pitch_profile, np.roll(minor_template, note_index)))
-        if major_score > best_score:
-            best_score = major_score
-            best_key = f"{note_name} Major"
-        if minor_score > best_score:
-            best_score = minor_score
-            best_key = f"{note_name} Minor"
+        scored_keys[f"{note_name} Major"] = major_score
+        scored_keys[f"{note_name} Minor"] = minor_score
+
+    best_key = max(scored_keys, key=scored_keys.get)
+    best_score = scored_keys[best_key]
+
+    if key_hint and key_hint in scored_keys:
+        key_hint_score = scored_keys[key_hint]
+        margin = max(0.0025, abs(best_score) * 0.02)
+        if best_score - key_hint_score <= margin:
+            return key_hint
     return best_key
 
 

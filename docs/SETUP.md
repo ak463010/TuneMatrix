@@ -100,8 +100,9 @@ After setup:
 
 1. Launch the app.
 2. Import a `wav` file first.
-3. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
-4. Run `Match Tempo` or `Match Key`.
-5. Export the result.
+3. Leave each song row's `BPM Range` and `Key Hint` columns on `Auto` unless you want to guide analysis.
+4. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
+5. Run `Match Tempo` or `Match Key`.
+6. Export the result.
 
 Then use [Testing Guide](TESTING.md) to verify the installation.

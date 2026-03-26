@@ -33,7 +33,16 @@ from PySide6.QtWidgets import (
 )
 
 from audio_processing import action_base_requirement_message, action_runtime_issues, dependency_status_lines
-from models import KEY_OPTIONS, ProcessingOptions, SongRecord, SongStatus, STEM_OPTIONS, TABLE_HEADERS
+from models import (
+    BPM_RANGE_DEFAULT_LABEL,
+    BPM_RANGE_OPTIONS,
+    KEY_OPTIONS,
+    ProcessingOptions,
+    SongRecord,
+    SongStatus,
+    STEM_OPTIONS,
+    TABLE_HEADERS,
+)
 from utils import (
     default_export_dir,
     format_bpm,
@@ -427,8 +436,10 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
 
         self.song_table.setColumnHidden(1, True)
 
@@ -909,6 +920,54 @@ class MainWindow(QMainWindow):
         index = combo.findData(value)
         combo.setCurrentIndex(index if index >= 0 else 0)
 
+    def _set_combo_text(self, combo: QComboBox, value: object) -> None:
+        text_value = str(value or "").strip()
+        index = combo.findText(text_value)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def _song_for_path(self, file_path: str) -> Optional[SongRecord]:
+        for song in self.songs:
+            if song.file_path == file_path:
+                return song
+        return None
+
+    def _create_song_bpm_range_combo(self, song: SongRecord) -> QComboBox:
+        combo = QComboBox()
+        combo.setObjectName("tableCombo")
+        combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        combo.setFixedHeight(24)
+        for label, bpm_range in BPM_RANGE_OPTIONS:
+            combo.addItem(label, bpm_range)
+        self._set_combo_text(combo, song.bpm_range_label)
+        combo.currentTextChanged.connect(lambda text, path=song.file_path: self._on_song_bpm_range_changed(path, text))
+        return combo
+
+    def _create_song_key_hint_combo(self, song: SongRecord) -> QComboBox:
+        combo = QComboBox()
+        combo.setObjectName("tableCombo")
+        combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        combo.setFixedHeight(24)
+        combo.addItem("Auto", None)
+        for key_name in KEY_OPTIONS:
+            combo.addItem(key_name, key_name)
+        self._set_combo_data(combo, song.analysis_key_hint)
+        combo.currentIndexChanged.connect(
+            lambda _index, path=song.file_path, widget=combo: self._on_song_key_hint_changed(path, widget.currentData())
+        )
+        return combo
+
+    def _on_song_bpm_range_changed(self, file_path: str, label: str) -> None:
+        song = self._song_for_path(file_path)
+        if song is None:
+            return
+        song.bpm_range_label = str(label or BPM_RANGE_DEFAULT_LABEL)
+
+    def _on_song_key_hint_changed(self, file_path: str, key_hint: object) -> None:
+        song = self._song_for_path(file_path)
+        if song is None:
+            return
+        song.analysis_key_hint = str(key_hint or "").strip() or None
+
     def selected_stem_values(self) -> list[str]:
         if not hasattr(self, "stem_checkboxes"):
             return []
@@ -995,6 +1054,13 @@ class MainWindow(QMainWindow):
             restored_songs.append(song)
 
         self.songs = restored_songs
+        legacy_bpm_range_label = str(ui_state.get("bpm_range_label") or BPM_RANGE_DEFAULT_LABEL)
+        legacy_key_hint = str(ui_state.get("analysis_key_hint") or "").strip() or None
+        for song in self.songs:
+            if not song.bpm_range_label:
+                song.bpm_range_label = legacy_bpm_range_label
+            if not song.analysis_key_hint and legacy_key_hint:
+                song.analysis_key_hint = legacy_key_hint
         self.song_table.setRowCount(0)
         for song in self.songs:
             self._append_song_row(song)
@@ -1361,6 +1427,7 @@ class MainWindow(QMainWindow):
         for control in always_available_controls:
             control.setEnabled(not running)
 
+        self.song_table.setEnabled(not running)
         self.cancel_button.setEnabled(running)
         self.cancel_button.setVisible(running)
         self.cancel_action.setEnabled(running)
@@ -1393,9 +1460,31 @@ class MainWindow(QMainWindow):
         self._populate_song_row(row, song)
 
     def _populate_song_row(self, row: int, song: SongRecord) -> None:
+        bpm_range_column = 2
+        key_hint_column = 3
+        bpm_range_combo = self.song_table.cellWidget(row, bpm_range_column)
+        if not isinstance(bpm_range_combo, QComboBox):
+            bpm_range_combo = self._create_song_bpm_range_combo(song)
+            self.song_table.setCellWidget(row, bpm_range_column, bpm_range_combo)
+        else:
+            bpm_range_combo.blockSignals(True)
+            self._set_combo_text(bpm_range_combo, song.bpm_range_label)
+            bpm_range_combo.blockSignals(False)
+
+        key_hint_combo = self.song_table.cellWidget(row, key_hint_column)
+        if not isinstance(key_hint_combo, QComboBox):
+            key_hint_combo = self._create_song_key_hint_combo(song)
+            self.song_table.setCellWidget(row, key_hint_column, key_hint_combo)
+        else:
+            key_hint_combo.blockSignals(True)
+            self._set_combo_data(key_hint_combo, song.analysis_key_hint)
+            key_hint_combo.blockSignals(False)
+
         values = [
             song.file_name,
             song.file_path,
+            "",
+            "",
             format_duration(song.duration),
             format_bpm(song.bpm),
             format_key(song.musical_key),
@@ -1404,10 +1493,12 @@ class MainWindow(QMainWindow):
             song.status,
         ]
         status_column = len(values) - 1
-        key_column = 4
-        relative_column = 5
-        compatible_column = 6
+        key_column = 6
+        relative_column = 7
+        compatible_column = 8
         for column, value in enumerate(values):
+            if column in {bpm_range_column, key_hint_column}:
+                continue
             item = self.song_table.item(row, column)
             if item is None:
                 item = QTableWidgetItem()

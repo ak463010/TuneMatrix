@@ -15,7 +15,7 @@ from audio_processing import (
     match_song_tempo,
     separate_song_stems,
 )
-from models import ProcessingOptions, SongRecord, SongStatus
+from models import ProcessingOptions, SongRecord, SongStatus, bpm_range_from_label
 
 
 class BaseWorker(QObject):
@@ -93,7 +93,18 @@ class AnalyzeWorker(BaseWorker):
             self.update_song_status(song, SongStatus.ANALYZING.value)
 
             try:
-                result = analyze_audio(song.file_path)
+                bpm_range_hint = bpm_range_from_label(song.bpm_range_label)
+                if bpm_range_hint:
+                    self.log.emit(
+                        f"{song.file_name}: using BPM range hint {bpm_range_hint[0]:.0f}-{bpm_range_hint[1]:.0f} BPM."
+                    )
+                if song.analysis_key_hint:
+                    self.log.emit(f"{song.file_name}: using key hint {song.analysis_key_hint}.")
+                result = analyze_audio(
+                    song.file_path,
+                    bpm_range_hint=bpm_range_hint,
+                    key_hint=song.analysis_key_hint,
+                )
                 self.apply_analysis_metadata(song, result)
                 song.last_error = None
                 song.status = SongStatus.ANALYZED.value
@@ -219,7 +230,11 @@ class ProcessingWorker(BaseWorker):
             return
 
         self.log.emit(f"Analyzing missing metadata for {song.file_name}.")
-        result = analyze_audio(song.processed_path or song.file_path)
+        result = analyze_audio(
+            song.processed_path or song.file_path,
+            bpm_range_hint=bpm_range_from_label(song.bpm_range_label),
+            key_hint=song.analysis_key_hint,
+        )
         if song.duration is None:
             song.duration = float(result.get("duration") or 0.0)
         if song.bpm is None or song.bpm <= 0:
