@@ -489,20 +489,6 @@ class MainWindow(QMainWindow):
         self.editor_note_label.setWordWrap(True)
         layout.addWidget(self.editor_note_label)
 
-        self.reference_bpm_checkbox = MixedStateCheckBox("Use Reference BPM")
-        self.reference_bpm_checkbox.setObjectName("panelCheck")
-        self.reference_bpm_checkbox.setTristate(True)
-        self.reference_bpm_checkbox.toggled.connect(self._update_reference_mode_ui)
-        self.reference_bpm_checkbox.stateChanged.connect(self._apply_reference_bpm_to_selection)
-        layout.addWidget(self.reference_bpm_checkbox)
-
-        self.reference_key_checkbox = MixedStateCheckBox("Use Reference Key")
-        self.reference_key_checkbox.setObjectName("panelCheck")
-        self.reference_key_checkbox.setTristate(True)
-        self.reference_key_checkbox.toggled.connect(self._update_reference_mode_ui)
-        self.reference_key_checkbox.stateChanged.connect(self._apply_reference_key_to_selection)
-        layout.addWidget(self.reference_key_checkbox)
-
         stem_label = QLabel("Stem Selection")
         stem_label.setObjectName("fieldLabel")
         layout.addWidget(stem_label)
@@ -1128,8 +1114,6 @@ class MainWindow(QMainWindow):
             song.processing_target_bpm is not None
             or song.processing_target_key
             or song.processing_selected_stems is not None
-            or song.use_reference_bpm
-            or song.use_reference_key
             or song.reference_song_path
         )
 
@@ -1151,8 +1135,6 @@ class MainWindow(QMainWindow):
         key_label = song.processing_target_key or "Unchanged"
         return (
             "Song processing\n"
-            f"Use Reference BPM: {'On' if song.use_reference_bpm else 'Off'}\n"
-            f"Use Reference Key: {'On' if song.use_reference_key else 'Off'}\n"
             f"Reference Song: {self._song_reference_name(song.reference_song_path)}\n"
             f"Target BPM: {bpm_label}\n"
             f"Target Key: {key_label}\n"
@@ -1187,8 +1169,6 @@ class MainWindow(QMainWindow):
 
     def _set_song_bound_controls_enabled(self, enabled: bool) -> None:
         for control in [
-            self.reference_bpm_checkbox,
-            self.reference_key_checkbox,
             self.target_bpm_edit,
             self.target_key_combo,
             self.reference_combo,
@@ -1210,8 +1190,6 @@ class MainWindow(QMainWindow):
                 self.editor_scope_label.setText("No song selected")
                 self.editor_note_label.setText("Select one or more songs to edit their processing settings.")
                 self._set_song_bound_controls_enabled(False)
-                self._set_checkbox_state(self.reference_bpm_checkbox, Qt.CheckState.Unchecked)
-                self._set_checkbox_state(self.reference_key_checkbox, Qt.CheckState.Unchecked)
                 self.target_bpm_edit.clear()
                 self.target_bpm_edit.setPlaceholderText("Select a song")
                 self._set_combo_data(self.target_key_combo, None)
@@ -1224,14 +1202,6 @@ class MainWindow(QMainWindow):
                 self.editor_scope_label.setText(f"Editing Song: {song.file_name}")
                 self.editor_note_label.setText("Changes in this panel update the selected song directly.")
                 self._set_song_bound_controls_enabled(True)
-                self._set_checkbox_state(
-                    self.reference_bpm_checkbox,
-                    Qt.CheckState.Checked if song.use_reference_bpm else Qt.CheckState.Unchecked,
-                )
-                self._set_checkbox_state(
-                    self.reference_key_checkbox,
-                    Qt.CheckState.Checked if song.use_reference_key else Qt.CheckState.Unchecked,
-                )
                 self.target_bpm_edit.setText("" if song.processing_target_bpm is None else f"{song.processing_target_bpm:g}")
                 self.target_bpm_edit.setPlaceholderText("Not set")
                 self._set_combo_data(self.target_key_combo, song.processing_target_key)
@@ -1247,23 +1217,6 @@ class MainWindow(QMainWindow):
                 self.editor_scope_label.setText(f"Editing Songs: {len(selected_songs)}")
                 self.editor_note_label.setText("Changes in this panel apply to all selected songs. Mixed means values differ.")
                 self._set_song_bound_controls_enabled(True)
-
-                reference_bpm_values = {song.use_reference_bpm for song in selected_songs}
-                reference_key_values = {song.use_reference_key for song in selected_songs}
-                if len(reference_bpm_values) == 1:
-                    self._set_checkbox_state(
-                        self.reference_bpm_checkbox,
-                        Qt.CheckState.Checked if reference_bpm_values.pop() else Qt.CheckState.Unchecked,
-                    )
-                else:
-                    self._set_checkbox_state(self.reference_bpm_checkbox, Qt.CheckState.PartiallyChecked)
-                if len(reference_key_values) == 1:
-                    self._set_checkbox_state(
-                        self.reference_key_checkbox,
-                        Qt.CheckState.Checked if reference_key_values.pop() else Qt.CheckState.Unchecked,
-                    )
-                else:
-                    self._set_checkbox_state(self.reference_key_checkbox, Qt.CheckState.PartiallyChecked)
 
                 bpm_values = {song.processing_target_bpm for song in selected_songs}
                 if len(bpm_values) == 1:
@@ -1302,47 +1255,28 @@ class MainWindow(QMainWindow):
 
     def _update_reference_mode_ui(self) -> None:
         has_selection = bool(self.selected_songs())
-        bpm_state = self.reference_bpm_checkbox.checkState()
-        key_state = self.reference_key_checkbox.checkState()
-        use_reference_bpm = bpm_state == Qt.CheckState.Checked
-        use_reference_key = key_state == Qt.CheckState.Checked
-        has_mixed_reference_state = bpm_state == Qt.CheckState.PartiallyChecked or key_state == Qt.CheckState.PartiallyChecked
-
-        self.target_bpm_edit.setEnabled(has_selection and not use_reference_bpm and self.current_worker is None)
-        self.target_key_combo.setEnabled(has_selection and not use_reference_key and self.current_worker is None)
+        self.target_bpm_edit.setEnabled(has_selection and self.current_worker is None)
+        self.target_key_combo.setEnabled(has_selection and self.current_worker is None)
         self.reference_combo.setEnabled(has_selection and self.current_worker is None)
-
-        self.target_bpm_edit.setToolTip("" if not use_reference_bpm else "Disabled while Use Reference BPM is enabled.")
-        self.target_key_combo.setToolTip("" if not use_reference_key else "Disabled while Use Reference Key is enabled.")
+        self.target_bpm_edit.setToolTip("")
+        self.target_key_combo.setToolTip("")
 
         if not has_selection:
             self.reference_note_label.setVisible(False)
             return
 
-        if has_mixed_reference_state:
-            self.reference_note_label.setVisible(True)
-            self.reference_note_label.setText("Reference BPM/Key settings are mixed across the current selection.")
-            return
-
-        if not (use_reference_bpm or use_reference_key):
+        reference_path = self.reference_combo.currentData()
+        if not reference_path or reference_path == "__mixed__":
             self.reference_note_label.setVisible(False)
             return
 
-        enabled_dimensions = []
-        if use_reference_bpm:
-            enabled_dimensions.append("BPM")
-        if use_reference_key:
-            enabled_dimensions.append("Key")
-        dimensions_text = " and ".join(enabled_dimensions)
-
         reference_name = "the selected reference song"
-        reference_path = self.reference_combo.currentData()
-        if reference_path and self.reference_combo.currentData() != "__mixed__":
+        if reference_path:
             reference_name = self._song_reference_name(reference_path)
 
         self.reference_note_label.setVisible(True)
         self.reference_note_label.setText(
-            f"{reference_name} is used as the target source for {dimensions_text} and will not be modified."
+            f"{reference_name} is used as the fallback source for BPM and Key when the selected song does not have explicit targets."
         )
 
     def _parse_target_bpm_value(self) -> Optional[float]:
@@ -1369,24 +1303,6 @@ class MainWindow(QMainWindow):
             if row is not None:
                 self._populate_song_row(row, song)
         return songs
-
-    def _apply_reference_bpm_to_selection(self, state: int) -> None:
-        if state == Qt.CheckState.PartiallyChecked.value:
-            return
-
-        checked = state == Qt.CheckState.Checked.value
-        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "use_reference_bpm", checked))
-        if songs:
-            self._load_processing_editor_from_selection()
-
-    def _apply_reference_key_to_selection(self, state: int) -> None:
-        if state == Qt.CheckState.PartiallyChecked.value:
-            return
-
-        checked = state == Qt.CheckState.Checked.value
-        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "use_reference_key", checked))
-        if songs:
-            self._load_processing_editor_from_selection()
 
     def _apply_target_bpm_to_selection(self) -> None:
         bpm_text = self.target_bpm_edit.text().strip()
@@ -1692,28 +1608,26 @@ class MainWindow(QMainWindow):
         for song in songs:
             if song.processing_target_bpm is not None and song.processing_target_bpm <= 0:
                 return f"{song.file_name}: Target BPM must be greater than zero."
-            if song.use_reference_bpm and self.get_reference_song(song) is None:
-                return f"{song.file_name}: Choose a valid reference song for BPM matching."
-            if song.use_reference_key and self.get_reference_song(song) is None:
-                return f"{song.file_name}: Choose a valid reference song for key matching."
+            if song.reference_song_path and self.get_reference_song(song) is None:
+                return f"{song.file_name}: Choose a valid reference song."
 
         if action == "match_tempo":
             missing_bpm_songs = [
                 song.file_name
                 for song in songs
-                if not song.use_reference_bpm and song.processing_target_bpm is None
+                if song.processing_target_bpm is None and not song.reference_song_path
             ]
             if missing_bpm_songs:
-                return "Each selected song needs a Target BPM or Use Reference BPM."
+                return "Each selected song needs a Target BPM or Reference Song."
 
         if action == "match_key":
             missing_key_songs = [
                 song.file_name
                 for song in songs
-                if not song.use_reference_key and not song.processing_target_key
+                if not song.processing_target_key and not song.reference_song_path
             ]
             if missing_key_songs:
-                return "Each selected song needs a Target Key or Use Reference Key."
+                return "Each selected song needs a Target Key or Reference Song."
 
         return None
 

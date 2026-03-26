@@ -19,12 +19,8 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
         self.assertEqual(worker._effective_target_key(song), "A Minor")
         self.assertEqual(worker._effective_stem_settings(song), ("All stems", ["Vocals", "Bass"]))
 
-    def test_song_bound_reference_targets_override_song_targets(self) -> None:
+    def test_reference_song_is_used_when_explicit_targets_are_missing(self) -> None:
         song = SongRecord.from_path("song.wav")
-        song.processing_target_bpm = 132.0
-        song.processing_target_key = "A Minor"
-        song.use_reference_bpm = True
-        song.use_reference_key = True
         song.reference_song_path = "reference.wav"
 
         reference = SongRecord.from_path("reference.wav")
@@ -37,15 +33,14 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
         self.assertEqual(worker._effective_target_bpm(song), 124.0)
         self.assertEqual(worker._effective_target_key(song), "G Major")
 
-    def test_self_reference_detection_is_dimension_specific(self) -> None:
+    def test_self_reference_detection_applies_to_missing_targets(self) -> None:
         song = SongRecord.from_path("song.wav")
-        song.use_reference_bpm = True
         song.reference_song_path = song.file_path
 
         worker = ProcessingWorker([song], ProcessingOptions(), "process_all")
 
         self.assertTrue(worker._is_reference_song_for_bpm(song))
-        self.assertFalse(worker._is_reference_song_for_key(song))
+        self.assertTrue(worker._is_reference_song_for_key(song))
 
 
 if __name__ == "__main__":

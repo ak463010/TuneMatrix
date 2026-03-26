@@ -86,11 +86,10 @@ class MainWindowTests(unittest.TestCase):
         key_hint_combo = window._table_combo_at(0, 3)
 
         self.assertEqual(window.import_button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
-        self.assertEqual(window.reference_bpm_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
-        self.assertEqual(window.reference_key_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(bpm_range_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(key_hint_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.target_key_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(window.reference_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.song_table.viewport().cursor().shape(), Qt.CursorShape.ArrowCursor)
 
     def test_bpm_range_combo_keeps_dropdown_options_and_manual_entry_item(self) -> None:
@@ -124,16 +123,12 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(options.output_dir, "C:/temp/export")
         self.assertIsNone(options.target_bpm)
         self.assertIsNone(options.target_key)
-        self.assertFalse(options.use_reference_bpm)
-        self.assertFalse(options.use_reference_key)
 
     def test_single_selection_loads_song_bound_values_into_editor(self) -> None:
         window = self._build_window()
         paths = self._import_files(window, ["song_a.wav", "song_b.wav"])
 
         song = window.songs[0]
-        song.use_reference_bpm = True
-        song.use_reference_key = False
         song.processing_target_bpm = 128.0
         song.processing_target_key = "A Minor"
         song.processing_selected_stems = ["Vocals", "Bass"]
@@ -142,8 +137,6 @@ class MainWindowTests(unittest.TestCase):
         window.song_table.selectRow(0)
 
         self.assertEqual(window.editor_scope_label.text(), "Editing Song: song_a.wav")
-        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.Checked)
-        self.assertEqual(window.reference_key_checkbox.checkState(), Qt.CheckState.Unchecked)
         self.assertEqual(window.target_bpm_edit.text(), "128")
         self.assertEqual(window.target_key_combo.currentData(), "A Minor")
         self.assertEqual(window.reference_combo.currentData(), str(paths[1].resolve()))
@@ -174,31 +167,16 @@ class MainWindowTests(unittest.TestCase):
         window.songs[1].processing_target_bpm = 140.0
         window.songs[0].processing_target_key = "A Minor"
         window.songs[1].processing_target_key = "C Major"
-        window.songs[0].use_reference_bpm = True
-        window.songs[1].use_reference_bpm = False
+        window.songs[0].reference_song_path = "ref_a.wav"
+        window.songs[1].reference_song_path = "ref_b.wav"
 
         self._select_rows(window, [0, 1])
 
         self.assertEqual(window.editor_scope_label.text(), "Editing Songs: 2")
-        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.PartiallyChecked)
         self.assertEqual(window.target_bpm_edit.text(), "")
         self.assertEqual(window.target_bpm_edit.placeholderText(), "Mixed")
         self.assertEqual(window.target_key_combo.currentText(), "Mixed")
-
-    def test_clicking_mixed_reference_checkbox_applies_checked_state_to_all_selected_songs(self) -> None:
-        window = self._build_window()
-        self._import_files(window, ["a.wav", "b.wav"])
-        window.songs[0].use_reference_bpm = True
-        window.songs[1].use_reference_bpm = False
-        self._select_rows(window, [0, 1])
-
-        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.PartiallyChecked)
-
-        window.reference_bpm_checkbox.click()
-
-        self.assertTrue(window.songs[0].use_reference_bpm)
-        self.assertTrue(window.songs[1].use_reference_bpm)
-        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.Checked)
+        self.assertEqual(window.reference_combo.currentText(), "Mixed")
 
     def test_editing_single_song_updates_song_processing_fields(self) -> None:
         window = self._build_window()
@@ -208,7 +186,6 @@ class MainWindowTests(unittest.TestCase):
         window.target_bpm_edit.setText("128")
         window.target_bpm_edit.editingFinished.emit()
         window.target_key_combo.setCurrentText("A Minor")
-        window.reference_bpm_checkbox.setChecked(True)
         reference_index = window.reference_combo.findData(str(paths[1].resolve()))
         window.reference_combo.setCurrentIndex(reference_index)
 
@@ -219,23 +196,23 @@ class MainWindowTests(unittest.TestCase):
         song = window.songs[0]
         self.assertEqual(song.processing_target_bpm, 128.0)
         self.assertEqual(song.processing_target_key, "A Minor")
-        self.assertTrue(song.use_reference_bpm)
         self.assertEqual(song.reference_song_path, str(paths[1].resolve()))
         self.assertEqual(song.processing_selected_stems, ["Vocals", "Bass"])
         self.assertTrue(song.processing_override_enabled)
 
     def test_editing_multi_selection_applies_to_all_selected_songs(self) -> None:
         window = self._build_window()
-        self._import_files(window, ["first.wav", "second.wav"])
+        paths = self._import_files(window, ["first.wav", "second.wav", "reference.wav"])
         self._select_rows(window, [0, 1])
 
         window.target_key_combo.setCurrentText("C Major")
-        window.reference_key_checkbox.setChecked(True)
+        reference_index = window.reference_combo.findData(str(paths[2].resolve()))
+        window.reference_combo.setCurrentIndex(reference_index)
 
         self.assertEqual(window.songs[0].processing_target_key, "C Major")
         self.assertEqual(window.songs[1].processing_target_key, "C Major")
-        self.assertTrue(window.songs[0].use_reference_key)
-        self.assertTrue(window.songs[1].use_reference_key)
+        self.assertEqual(window.songs[0].reference_song_path, str(paths[2].resolve()))
+        self.assertEqual(window.songs[1].reference_song_path, str(paths[2].resolve()))
 
     def test_output_folder_stays_global_when_selection_changes(self) -> None:
         window = self._build_window()
@@ -311,7 +288,6 @@ class MainWindowTests(unittest.TestCase):
         song.processing_target_bpm = 126.0
         song.processing_target_key = "A Minor"
         song.processing_selected_stems = ["Vocals", "Bass"]
-        song.use_reference_bpm = True
         song.reference_song_path = str(paths[0].resolve())
         window.output_dir_edit.setText("C:/exports")
 
@@ -321,7 +297,6 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["songs"][0]["processing_target_bpm"], 126.0)
         self.assertEqual(state["songs"][0]["processing_target_key"], "A Minor")
         self.assertEqual(state["songs"][0]["processing_selected_stems"], ["Vocals", "Bass"])
-        self.assertTrue(state["songs"][0]["use_reference_bpm"])
         self.assertEqual(state["songs"][0]["reference_song_path"], str(paths[0].resolve()))
         self.assertEqual(state["ui"], {"output_dir": "C:/exports"})
 
@@ -344,8 +319,6 @@ class MainWindowTests(unittest.TestCase):
                             "processing_target_bpm": 132.0,
                             "processing_target_key": "A Minor",
                             "processing_selected_stems": ["Vocals", "Bass"],
-                            "use_reference_bpm": True,
-                            "use_reference_key": False,
                             "reference_song_path": str(ref_path),
                             "status": "Imported",
                         },
@@ -367,8 +340,6 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.target_bpm_edit.text(), "132")
         self.assertEqual(window.target_key_combo.currentData(), "A Minor")
         self.assertEqual(window.reference_combo.currentData(), str(ref_path))
-        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.Checked)
-        self.assertEqual(window.reference_key_checkbox.checkState(), Qt.CheckState.Unchecked)
         self.assertTrue(window.stem_checkboxes["Vocals"].isChecked())
         self.assertTrue(window.stem_checkboxes["Bass"].isChecked())
 
@@ -401,7 +372,6 @@ class MainWindowTests(unittest.TestCase):
                         "target_key": "C Minor",
                         "selected_stems": ["Bass", "Drums"],
                         "use_reference_bpm": True,
-                        "use_reference_key": False,
                         "reference_song_path": str(ref_path),
                         "output_dir": "D:/processed",
                     },
@@ -412,8 +382,6 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(migrated_song.processing_target_bpm, 128.0)
         self.assertEqual(migrated_song.processing_target_key, "C Minor")
         self.assertEqual(migrated_song.processing_selected_stems, ["Bass", "Drums"])
-        self.assertTrue(migrated_song.use_reference_bpm)
-        self.assertFalse(migrated_song.use_reference_key)
         self.assertEqual(migrated_song.reference_song_path, str(ref_path))
 
     def test_manual_bpm_range_prompt_updates_song_value(self) -> None:

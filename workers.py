@@ -195,24 +195,24 @@ class ProcessingWorker(BaseWorker):
         return self.song_lookup.get(song.reference_song_path)
 
     def _effective_target_bpm(self, song: SongRecord) -> Optional[float]:
-        if not song.use_reference_bpm:
+        if song.processing_target_bpm is not None:
             return song.processing_target_bpm
 
         reference_song = self._reference_song_for(song)
         if reference_song is None:
-            raise AudioProcessingError(f"{song.file_name}: Use Reference BPM is enabled, but no reference song is set.")
+            return None
         self._ensure_song_analysis(reference_song)
         if not reference_song.bpm or reference_song.bpm <= 0:
             raise AudioProcessingError(f"{reference_song.file_name} does not have a usable BPM.")
         return float(reference_song.bpm)
 
     def _effective_target_key(self, song: SongRecord) -> Optional[str]:
-        if not song.use_reference_key:
+        if song.processing_target_key:
             return song.processing_target_key
 
         reference_song = self._reference_song_for(song)
         if reference_song is None:
-            raise AudioProcessingError(f"{song.file_name}: Use Reference Key is enabled, but no reference song is set.")
+            return None
         self._ensure_song_analysis(reference_song)
         if not reference_song.musical_key:
             raise AudioProcessingError(f"{reference_song.file_name} does not have a usable key.")
@@ -251,10 +251,10 @@ class ProcessingWorker(BaseWorker):
         self.song_updated.emit(song)
 
     def _is_reference_song_for_bpm(self, song: SongRecord) -> bool:
-        return bool(song.use_reference_bpm and song.reference_song_path and song.reference_song_path == song.file_path)
+        return bool(song.processing_target_bpm is None and song.reference_song_path and song.reference_song_path == song.file_path)
 
     def _is_reference_song_for_key(self, song: SongRecord) -> bool:
-        return bool(song.use_reference_key and song.reference_song_path and song.reference_song_path == song.file_path)
+        return bool(not song.processing_target_key and song.reference_song_path and song.reference_song_path == song.file_path)
 
     def _separate(self, song: SongRecord) -> None:
         stem_option, selected_stems = self._effective_stem_settings(song)
