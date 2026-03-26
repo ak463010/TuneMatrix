@@ -1371,6 +1371,9 @@ class MainWindow(QMainWindow):
         return result == QMessageBox.StandardButton.Yes
 
     def _apply_target_bpm_to_selection(self) -> None:
+        if self._sidebar_binding_in_progress or self.current_worker is not None:
+            return
+
         bpm_text = self.target_bpm_edit.text().strip()
         bpm_value = self._parse_target_bpm_value()
         if bpm_text and bpm_value is None:
@@ -1391,6 +1394,9 @@ class MainWindow(QMainWindow):
             self._load_processing_editor_from_selection()
 
     def _apply_target_key_to_selection(self) -> None:
+        if self._sidebar_binding_in_progress or self.current_worker is not None:
+            return
+
         target_key = self.target_key_combo.currentData()
         if target_key == "__mixed__":
             return
@@ -1404,6 +1410,9 @@ class MainWindow(QMainWindow):
             self._load_processing_editor_from_selection()
 
     def _apply_reference_song_to_selection(self) -> None:
+        if self._sidebar_binding_in_progress or self.current_worker is not None:
+            return
+
         reference_path = self.reference_combo.currentData()
         if reference_path == "__mixed__":
             return
