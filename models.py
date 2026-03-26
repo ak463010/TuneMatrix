@@ -115,6 +115,7 @@ class SongRecord:
 @dataclass
 class ProcessingOptions:
     stem_option: str = "All stems"
+    selected_stems: Optional[list[str]] = None
     target_bpm: Optional[float] = None
     target_key: Optional[str] = None
     match_to_reference: bool = False

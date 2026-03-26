@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
@@ -35,6 +36,16 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.process_all_button.isEnabled())
         self.assertIn("Stem dependency missing.", window.separate_button.toolTip())
 
+    def test_clickable_controls_use_pointing_hand_cursor(self) -> None:
+        window = self._build_window()
+
+        self.assertEqual(window.import_button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(window.reference_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(window.target_key_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(window.song_table.viewport().cursor().shape(), Qt.CursorShape.ArrowCursor)
+        self.assertTrue(window.song_table.hasMouseTracking())
+        self.assertTrue(window.song_table.viewport().hasMouseTracking())
+
     def test_build_processing_options_parses_form_values(self) -> None:
         window = self._build_window()
 
@@ -49,6 +60,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(options.target_bpm, 128.5)
         self.assertEqual(options.target_key, "C Major")
         self.assertEqual(options.stem_option, "Bass")
+        self.assertEqual(options.selected_stems, ["Bass"])
         self.assertTrue(options.match_to_reference)
         self.assertEqual(options.output_dir, "C:/temp/export")
 
@@ -105,6 +117,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["ui"]["target_bpm_text"], "126")
         self.assertEqual(state["ui"]["target_key"], "A Minor")
         self.assertEqual(state["ui"]["stem_option"], "Vocals")
+        self.assertEqual(state["ui"]["selected_stems"], ["Vocals"])
         self.assertTrue(state["ui"]["match_to_reference"])
         self.assertEqual(state["ui"]["reference_song_path"], str(wav_path.resolve()))
         self.assertEqual(state["ui"]["output_dir"], "C:/exports")
@@ -135,7 +148,8 @@ class MainWindowTests(unittest.TestCase):
                     "ui": {
                         "target_bpm_text": "128",
                         "target_key": "C Minor",
-                        "stem_option": "Bass",
+                        "stem_option": "All stems",
+                        "selected_stems": ["Bass", "Drums"],
                         "match_to_reference": True,
                         "reference_song_path": str(wav_path),
                         "output_dir": "D:/processed",
@@ -148,7 +162,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.song_table.item(0, 0).text(), "restored.wav")
         self.assertEqual(window.target_bpm_edit.text(), "128")
         self.assertEqual(window.target_key_combo.currentData(), "C Minor")
-        self.assertEqual(window.stem_option_combo.currentData(), "Bass")
+        self.assertEqual(window.stem_option_combo.currentData(), "All stems")
+        self.assertEqual(window.selected_stem_values(), ["Drums", "Bass"])
         self.assertTrue(window.reference_checkbox.isChecked())
         self.assertEqual(window.reference_combo.currentData(), str(wav_path))
         self.assertEqual(window.output_dir_edit.text(), "D:/processed")
@@ -178,6 +193,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(restored_window.target_bpm_edit.text(), "110")
         self.assertEqual(restored_window.target_key_combo.currentData(), "G Major")
         self.assertEqual(restored_window.stem_option_combo.currentData(), "Drums")
+        self.assertEqual(restored_window.selected_stem_values(), ["Drums"])
         self.assertTrue(restored_window.reference_checkbox.isChecked())
         self.assertEqual(restored_window.reference_combo.currentData(), str(wav_path.resolve()))
 

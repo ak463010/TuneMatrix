@@ -119,6 +119,46 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertTrue((stem_dir / "vocals.wav").exists())
             self.assertFalse((stem_dir / "no_vocals.wav").exists())
 
+    def test_separate_song_stems_filters_multiple_selected_stems(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            wav_path = temp_root / "tone.wav"
+            stems_root = temp_root / "multi_stems"
+            create_test_wave(wav_path)
+
+            song = SongRecord.from_path(str(wav_path))
+            fake_sources = th.tensor(
+                [
+                    [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+                    [[0.2, 0.2, 0.2], [0.2, 0.2, 0.2]],
+                    [[0.3, 0.3, 0.3], [0.3, 0.3, 0.3]],
+                    [[0.4, 0.4, 0.4], [0.4, 0.4, 0.4]],
+                ],
+                dtype=th.float32,
+            )
+
+            class FakeModel:
+                samplerate = 44100
+                audio_channels = 2
+                sources = ["drums", "bass", "other", "vocals"]
+
+            with patch("audio_processing.make_song_cache_dir", return_value=str(stems_root)), patch(
+                "audio_processing.action_runtime_issues", return_value=[]
+            ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
+                "audio_processing.librosa.load",
+                return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
+            ), patch("audio_processing.th.cuda.is_available", return_value=False), patch(
+                "audio_processing._check_canceled"
+            ), patch("audio_processing._log"), patch(
+                "demucs.apply.apply_model", return_value=fake_sources.unsqueeze(0)
+            ):
+                result = separate_song_stems(song, "All stems", selected_stems=["Vocals", "Bass"])
+
+            stem_dir = Path(result["stems_dir"])
+            self.assertTrue((stem_dir / "vocals.wav").exists())
+            self.assertTrue((stem_dir / "bass.wav").exists())
+            self.assertFalse((stem_dir / "drums.wav").exists())
+
     def test_match_tempo_key_and_export_processed_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

@@ -79,6 +79,13 @@ COMPRESSED_FORMATS = {".mp3", ".m4a"}
 ANALYSIS_ACTIONS = {"analyze", "match_tempo", "match_key", "process_all"}
 STEM_ACTIONS = {"separate", "process_all"}
 WRITE_ACTIONS = {"match_tempo", "match_key", "process_all"}
+STEM_OUTPUT_FILES = {
+    "Vocals": "vocals.wav",
+    "Instrumental / No vocals": "no_vocals.wav",
+    "Drums": "drums.wav",
+    "Bass": "bass.wav",
+    "Other": "other.wav",
+}
 
 
 def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
@@ -531,6 +538,7 @@ def match_song_key(
 def separate_song_stems(
     song: SongRecord,
     stem_option: str,
+    selected_stems: Optional[list[str]] = None,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, str]:
@@ -553,26 +561,25 @@ def separate_song_stems(
     for stem_name, audio_data in stems.items():
         _save_audio(stem_dir / f"{stem_name}.wav", audio_data, sample_rate)
 
-    selected_files = {
-        "Vocals": ["vocals.wav"],
-        "Instrumental / No vocals": ["no_vocals.wav"],
-        "Drums": ["drums.wav"],
-        "Bass": ["bass.wav"],
-        "Other": ["other.wav"],
-        "All stems": ["vocals.wav", "no_vocals.wav", "drums.wav", "bass.wav", "other.wav"],
-    }
+    if selected_stems:
+        normalized_selection = [stem_name for stem_name in selected_stems if stem_name in STEM_OUTPUT_FILES]
+    elif stem_option == "All stems":
+        normalized_selection = list(STEM_OUTPUT_FILES)
+    else:
+        normalized_selection = [stem_option] if stem_option in STEM_OUTPUT_FILES else []
 
-    if stem_option == "All stems":
+    if not normalized_selection or set(normalized_selection) == set(STEM_OUTPUT_FILES):
         _log(log_callback, f"Stem separation finished for {song.file_name}.")
         return {"stems_dir": str(stem_dir)}
 
-    filtered_dir = stem_root / "selected" / safe_stem(stem_option)
+    filter_name = "_".join(safe_stem(stem_name) for stem_name in normalized_selection)
+    filtered_dir = stem_root / "selected" / safe_stem(filter_name)
     ensure_directory(filtered_dir)
     copied_any = False
-    for stem_name in selected_files[stem_option]:
-        source = stem_dir / stem_name
+    for stem_name in normalized_selection:
+        source = stem_dir / STEM_OUTPUT_FILES[stem_name]
         if source.exists():
-            shutil.copy2(source, filtered_dir / stem_name)
+            shutil.copy2(source, filtered_dir / source.name)
             copied_any = True
 
     if not copied_any:

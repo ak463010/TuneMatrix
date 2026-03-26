@@ -223,6 +223,7 @@ class ProcessingWorker(BaseWorker):
         result = separate_song_stems(
             song,
             self.options.stem_option,
+            selected_stems=self.options.selected_stems,
             log_callback=self.log.emit,
             cancel_callback=self.is_canceled,
         )
@@ -284,6 +285,7 @@ class ProcessingWorker(BaseWorker):
             result = separate_song_stems(
                 song,
                 self.options.stem_option,
+                selected_stems=self.options.selected_stems,
                 log_callback=self.log.emit,
                 cancel_callback=self.is_canceled,
             )
