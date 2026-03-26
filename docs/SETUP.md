@@ -90,7 +90,15 @@ The startup log intentionally reports only the dependencies used by the current 
 
 ## Output Locations
 
-- Processed temporary files are written under the system temp directory in a `TuneMatrix` folder
+- On Windows, processed temporary files are written under:
+
+```text
+C:\Users\<you>\AppData\Local\Temp\TuneMatrix\
+```
+
+- Inside that cache root, TuneMatrix creates per-song folders under:
+  - `processed\`
+  - `stems\`
 - Exported files are written to the selected export directory
 - Originals are never modified
 

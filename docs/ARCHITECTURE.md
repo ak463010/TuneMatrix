@@ -90,7 +90,16 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 
 ## Caching and Output
 
-Temporary processing outputs are stored in a per-song cache folder under the system temp directory.
+Temporary processing outputs are stored in a per-song cache folder under the Windows temp directory:
+
+```text
+C:\Users\<you>\AppData\Local\Temp\TuneMatrix\
+```
+
+Current subfolders:
+
+- `processed\`
+- `stems\`
 
 Benefits:
 

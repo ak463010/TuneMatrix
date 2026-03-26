@@ -116,3 +116,18 @@ Recent fixes:
 - left table area gets more width
 
 If layout still looks wrong, restart after pulling the latest code and retest.
+
+## Where Temporary Files Are Stored
+
+On Windows, TuneMatrix keeps temporary processed audio and stem cache files under:
+
+```text
+C:\Users\<you>\AppData\Local\Temp\TuneMatrix\
+```
+
+Typical cache subfolders:
+
+- `processed\`
+- `stems\`
+
+These are cache files, not exported deliverables.

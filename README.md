@@ -58,6 +58,18 @@ pip install -r requirements.txt
 python main.py
 ```
 
+On Windows, TuneMatrix stores temporary processed and stem cache files under:
+
+```text
+C:\Users\<you>\AppData\Local\Temp\TuneMatrix\
+```
+
+The default export folder is:
+
+```text
+<project>\exports\
+```
+
 ## Run Tests
 
 Use the provided batch file:
