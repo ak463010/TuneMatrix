@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QInputDialog,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -424,7 +425,7 @@ class MainWindow(QMainWindow):
         self.song_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.song_table.setObjectName("songTable")
         self.song_table.verticalHeader().setVisible(False)
-        self.song_table.verticalHeader().setDefaultSectionSize(30)
+        self.song_table.verticalHeader().setDefaultSectionSize(26)
         self.song_table.setShowGrid(True)
         self.song_table.files_dropped.connect(self.import_songs)
 
@@ -433,8 +434,8 @@ class MainWindow(QMainWindow):
         header.setMinimumSectionSize(72)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
@@ -443,6 +444,8 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
 
         self.song_table.setColumnHidden(1, True)
+        self.song_table.setColumnWidth(2, 136)
+        self.song_table.setColumnWidth(3, 136)
 
         layout.addWidget(self.song_table, 1)
         return panel
@@ -784,6 +787,20 @@ class MainWindow(QMainWindow):
                 width: 10px;
                 height: 6px;
             }
+            #tableCombo {
+                padding: 0px 6px;
+                margin: 0px;
+            }
+            #tableCombo QLineEdit {
+                background: transparent;
+                border: none;
+                padding: 0px;
+                margin: 0px;
+                color: #eef3fb;
+            }
+            #tableCombo::drop-down {
+                width: 18px;
+            }
             QComboBox QAbstractItemView {
                 background-color: #131920;
                 color: #eef3fb;
@@ -944,30 +961,74 @@ class MainWindow(QMainWindow):
                 return song
         return None
 
+    def _find_combo_index_by_data(self, combo: QComboBox, target: object) -> int:
+        for index in range(combo.count()):
+            if combo.itemData(index) == target:
+                return index
+        return -1
+
+    def _set_song_bpm_range_combo_value(self, combo: QComboBox, label: object) -> None:
+        normalized = str(label or BPM_RANGE_DEFAULT_LABEL).strip() or BPM_RANGE_DEFAULT_LABEL
+        direct_index = combo.findText(normalized)
+        custom_index = self._find_combo_index_by_data(combo, "__custom__")
+        manual_index = self._find_combo_index_by_data(combo, "__manual__")
+
+        if direct_index >= 0:
+            if custom_index >= 0:
+                combo.removeItem(custom_index)
+            combo.setCurrentIndex(direct_index)
+            return
+
+        insert_index = manual_index if manual_index >= 0 else combo.count()
+        if custom_index >= 0:
+            combo.setItemText(custom_index, normalized)
+        else:
+            combo.insertItem(insert_index, normalized, "__custom__")
+            custom_index = insert_index
+        combo.setCurrentIndex(custom_index)
+
+    def _wrap_table_cell_widget(self, widget: QWidget) -> QWidget:
+        container = QWidget()
+        container.setObjectName("tableCellContainer")
+        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setSpacing(0)
+        layout.addWidget(widget)
+        return container
+
+    def _table_combo_at(self, row: int, column: int) -> Optional[QComboBox]:
+        widget = self.song_table.cellWidget(row, column)
+        if isinstance(widget, QComboBox):
+            return widget
+        if isinstance(widget, QWidget):
+            return widget.findChild(QComboBox)
+        return None
+
     def _create_song_bpm_range_combo(self, song: SongRecord) -> QComboBox:
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setFixedHeight(24)
-        combo.setEditable(True)
-        combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        combo.setMinimumHeight(0)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         combo.setMaxVisibleItems(len(BPM_RANGE_OPTIONS) + 2)
-        combo.setToolTip("Choose a preset or type a BPM like 128 or a range like 120-130.")
-        combo.lineEdit().setPlaceholderText("Auto or Enter BPM")
+        combo.setToolTip("Choose a preset or use Enter BPM... for a manual value like 128 or 120-130.")
         for label, bpm_range in BPM_RANGE_OPTIONS:
             combo.addItem(label, bpm_range)
         combo.insertSeparator(combo.count())
         combo.addItem(BPM_RANGE_MANUAL_LABEL, "__manual__")
-        self._set_combo_text(combo, song.bpm_range_label)
-        combo.currentTextChanged.connect(lambda text, path=song.file_path: self._on_song_bpm_range_changed(path, text))
-        combo.activated.connect(lambda _index, path=song.file_path, widget=combo: self._on_song_bpm_range_activated(path, widget))
+        self._set_song_bpm_range_combo_value(combo, song.bpm_range_label)
+        combo.currentIndexChanged.connect(
+            lambda _index, path=song.file_path, widget=combo: self._on_song_bpm_range_selection_changed(path, widget)
+        )
         return combo
 
     def _create_song_key_hint_combo(self, song: SongRecord) -> QComboBox:
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
-        combo.setFixedHeight(24)
+        combo.setMinimumHeight(0)
+        combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         combo.addItem("Auto", None)
         for key_name in KEY_OPTIONS:
             combo.addItem(key_name, key_name)
@@ -977,30 +1038,30 @@ class MainWindow(QMainWindow):
         )
         return combo
 
-    def _on_song_bpm_range_changed(self, file_path: str, label: str) -> None:
+    def _on_song_bpm_range_selection_changed(self, file_path: str, combo: QComboBox) -> None:
         song = self._song_for_path(file_path)
         if song is None:
             return
-        normalized = str(label or "").strip()
-        if not normalized:
-            song.bpm_range_label = BPM_RANGE_DEFAULT_LABEL
+        current_data = combo.currentData()
+        if current_data == "__manual__":
+            current_text = song.bpm_range_label if song.bpm_range_label not in {BPM_RANGE_DEFAULT_LABEL, BPM_RANGE_MANUAL_LABEL} else ""
+            value, accepted = QInputDialog.getText(
+                self,
+                "Enter BPM Range",
+                "Enter a BPM like 128 or a range like 120-130:",
+                text=current_text,
+            )
+            if accepted:
+                normalized = str(value or "").strip()
+                if normalized:
+                    song.bpm_range_label = normalized
+            combo.blockSignals(True)
+            self._set_song_bpm_range_combo_value(combo, song.bpm_range_label)
+            combo.blockSignals(False)
             return
-        if normalized == BPM_RANGE_MANUAL_LABEL:
-            return
-        song.bpm_range_label = normalized
 
-    def _on_song_bpm_range_activated(self, file_path: str, combo: QComboBox) -> None:
-        if combo.currentData() != "__manual__":
-            return
-        song = self._song_for_path(file_path)
-        if song is None:
-            return
-        current_text = song.bpm_range_label
-        if current_text in {BPM_RANGE_DEFAULT_LABEL, BPM_RANGE_MANUAL_LABEL}:
-            current_text = ""
-        combo.setEditText(current_text)
-        combo.lineEdit().setFocus()
-        combo.lineEdit().selectAll()
+        selected_text = str(combo.currentText() or BPM_RANGE_DEFAULT_LABEL).strip() or BPM_RANGE_DEFAULT_LABEL
+        song.bpm_range_label = selected_text
 
     def _on_song_key_hint_changed(self, file_path: str, key_hint: object) -> None:
         song = self._song_for_path(file_path)
@@ -1502,19 +1563,19 @@ class MainWindow(QMainWindow):
     def _populate_song_row(self, row: int, song: SongRecord) -> None:
         bpm_range_column = 2
         key_hint_column = 3
-        bpm_range_combo = self.song_table.cellWidget(row, bpm_range_column)
+        bpm_range_combo = self._table_combo_at(row, bpm_range_column)
         if not isinstance(bpm_range_combo, QComboBox):
             bpm_range_combo = self._create_song_bpm_range_combo(song)
-            self.song_table.setCellWidget(row, bpm_range_column, bpm_range_combo)
+            self.song_table.setCellWidget(row, bpm_range_column, self._wrap_table_cell_widget(bpm_range_combo))
         else:
             bpm_range_combo.blockSignals(True)
-            self._set_combo_text(bpm_range_combo, song.bpm_range_label)
+            self._set_song_bpm_range_combo_value(bpm_range_combo, song.bpm_range_label)
             bpm_range_combo.blockSignals(False)
 
-        key_hint_combo = self.song_table.cellWidget(row, key_hint_column)
+        key_hint_combo = self._table_combo_at(row, key_hint_column)
         if not isinstance(key_hint_combo, QComboBox):
             key_hint_combo = self._create_song_key_hint_combo(song)
-            self.song_table.setCellWidget(row, key_hint_column, key_hint_combo)
+            self.song_table.setCellWidget(row, key_hint_column, self._wrap_table_cell_widget(key_hint_combo))
         else:
             key_hint_combo.blockSignals(True)
             self._set_combo_data(key_hint_combo, song.analysis_key_hint)
