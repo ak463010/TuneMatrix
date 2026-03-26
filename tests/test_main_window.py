@@ -79,6 +79,21 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.analyze_button.isEnabled())
         self.assertTrue(window.export_button.isEnabled())
 
+    def test_table_header_is_hidden_when_empty_and_visible_with_songs(self) -> None:
+        window = self._build_window()
+
+        self.assertTrue(window.song_table.horizontalHeader().isHidden())
+        self.assertEqual(
+            window.song_table.empty_state_text,
+            "No songs imported yet.\nClick Import Songs or drag and drop audio files here.",
+        )
+
+        self._import_files(window, ["header.wav"])
+        self.assertFalse(window.song_table.horizontalHeader().isHidden())
+
+        window.clear_songs()
+        self.assertTrue(window.song_table.horizontalHeader().isHidden())
+
     def test_clickable_controls_use_pointing_hand_cursor(self) -> None:
         window = self._build_window()
         self._import_files(window, ["cursor.wav"])

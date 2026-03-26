@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QSize, QThread, Qt, QTime, Signal
-from PySide6.QtGui import QAction, QColor, QIcon
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -77,6 +77,7 @@ class AudioTableWidget(QTableWidget):
         self.setAcceptDrops(True)
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
+        self.empty_state_text = ""
 
     def dragEnterEvent(self, event) -> None:  # type: ignore[override]
         if self._extract_paths(event):
@@ -106,11 +107,30 @@ class AudioTableWidget(QTableWidget):
         self.viewport().unsetCursor()
         super().leaveEvent(event)
 
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        super().paintEvent(event)
+        if self.rowCount() != 0 or not self.empty_state_text:
+            return
+
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setPen(QColor("#7f8ba0"))
+        painter.drawText(
+            self.viewport().rect().adjusted(24, 24, -24, -24),
+            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+            self.empty_state_text,
+        )
+        painter.end()
+
     def _update_hover_cursor(self, pos: QPoint) -> None:
         if self.indexAt(pos).isValid():
             self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
             return
         self.viewport().unsetCursor()
+
+    def set_empty_state_text(self, text: str) -> None:
+        self.empty_state_text = text
+        self.viewport().update()
 
     @staticmethod
     def _extract_paths(event) -> list[str]:
@@ -435,6 +455,7 @@ class MainWindow(QMainWindow):
         self.song_table.verticalHeader().setVisible(False)
         self.song_table.verticalHeader().setDefaultSectionSize(28)
         self.song_table.setShowGrid(True)
+        self.song_table.set_empty_state_text("No songs imported yet.\nClick Import Songs or drag and drop audio files here.")
         self.song_table.files_dropped.connect(self.import_songs)
         self.song_table.itemSelectionChanged.connect(self._refresh_action_availability)
         self.song_table.itemSelectionChanged.connect(self._load_processing_editor_from_selection)
@@ -452,6 +473,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
+        header.setVisible(False)
 
         self.song_table.setColumnHidden(1, True)
         self.song_table.setColumnWidth(2, 136)
@@ -932,6 +954,11 @@ class MainWindow(QMainWindow):
 
     def _has_song_selection(self) -> bool:
         return bool(self.selected_rows())
+
+    def _update_song_table_header_visibility(self) -> None:
+        if not hasattr(self, "song_table"):
+            return
+        self.song_table.horizontalHeader().setVisible(bool(self.songs))
 
     def _refresh_action_availability(self) -> None:
         self.action_dependency_messages = self._collect_base_action_messages()
@@ -1444,6 +1471,7 @@ class MainWindow(QMainWindow):
         self.song_table.setRowCount(0)
         for song in self.songs:
             self._append_song_row(song)
+        self._update_song_table_header_visibility()
 
         if "output_dir" in ui_state:
             self.output_dir_edit.setText(str(ui_state.get("output_dir") or ""))
@@ -1556,6 +1584,7 @@ class MainWindow(QMainWindow):
                 self.append_log(f"{song.file_name}: {issue}")
 
         if added_count:
+            self._update_song_table_header_visibility()
             self.refresh_reference_combo()
             self._load_processing_editor_from_selection()
 
@@ -1573,6 +1602,7 @@ class MainWindow(QMainWindow):
             self.song_table.removeRow(row)
             self.append_log(f"Removed {removed_song.file_name}")
 
+        self._update_song_table_header_visibility()
         self.refresh_reference_combo()
         self._load_processing_editor_from_selection()
 
@@ -1585,6 +1615,7 @@ class MainWindow(QMainWindow):
 
         self.songs.clear()
         self.song_table.setRowCount(0)
+        self._update_song_table_header_visibility()
         self.refresh_reference_combo()
         self.progress_bar.setValue(0)
         self.append_log("Cleared the song list.")
