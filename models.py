@@ -11,8 +11,8 @@ TABLE_HEADERS = [
     "Duration",
     "BPM",
     "Key",
-    "Relative",
-    "Compatible",
+    "Relative Key",
+    "Compatible Keys",
     "Status",
 ]
 

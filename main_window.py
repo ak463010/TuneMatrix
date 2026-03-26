@@ -1424,13 +1424,13 @@ class MainWindow(QMainWindow):
             if column == key_column:
                 item.setToolTip(
                     f"Detected: {format_key(song.musical_key)}\n"
-                    f"Relative: {format_key(song.relative_key)}\n"
-                    f"Compatible: {format_key_list(song.compatible_keys)}"
+                    f"Relative Key: {format_key(song.relative_key)}\n"
+                    f"Compatible Keys: {format_key_list(song.compatible_keys)}"
                 )
             elif column == relative_column:
-                item.setToolTip(format_key(song.relative_key))
+                item.setToolTip(f"Relative Key: {format_key(song.relative_key)}")
             elif column == compatible_column:
-                item.setToolTip(format_key_list(song.compatible_keys))
+                item.setToolTip(f"Compatible Keys: {format_key_list(song.compatible_keys)}")
             elif column == status_column and song.status == SongStatus.ERROR.value:
                 item.setToolTip(song.last_error or "Task failed.")
             elif column == status_column:
