@@ -625,6 +625,8 @@ class MainWindow(QMainWindow):
                 widget.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def _apply_styles(self) -> None:
+        checkbox_checked_icon = (ICON_DIR / "checkbox_checked.svg").as_posix()
+        checkbox_unchecked_icon = (ICON_DIR / "checkbox_unchecked.svg").as_posix()
         self.setStyleSheet(
             """
             QWidget {
@@ -702,10 +704,13 @@ class MainWindow(QMainWindow):
                 text-align: left;
             }
             QPushButton:hover {
-                background-color: #3b4759;
+                background-color: #425166;
+                border-color: #4c6487;
+                color: #ffffff;
             }
             QPushButton:pressed {
                 background-color: #27303b;
+                border-color: #324860;
             }
             QPushButton:disabled {
                 background-color: #252b35;
@@ -722,11 +727,19 @@ class MainWindow(QMainWindow):
                 padding: 3px 9px;
                 font-size: 11px;
             }
+            #runActionButton:hover {
+                background-color: #47566d;
+                border-color: #5674a0;
+            }
             #runActionButton[cancelAction="true"] {
                 min-width: 112px;
             }
             #inlineButton, #ghostButton {
                 background-color: #2d3643;
+            }
+            #inlineButton:hover, #ghostButton:hover, #topActionButton:hover {
+                background-color: #435166;
+                border-color: #4f6a90;
             }
             QLineEdit, QComboBox, QPlainTextEdit, QTableWidget {
                 background-color: #131920;
@@ -787,13 +800,10 @@ class MainWindow(QMainWindow):
             QCheckBox::indicator {
                 width: 14px;
                 height: 14px;
-                border-radius: 3px;
-                border: 1px solid #5a6474;
-                background-color: #141a21;
+                image: url("%s");
             }
             QCheckBox::indicator:checked {
-                background-color: #687180;
-                border-color: #687180;
+                image: url("%s");
             }
             QScrollBar:vertical {
                 background: #12171d;
@@ -817,6 +827,7 @@ class MainWindow(QMainWindow):
                 font-size: 11px;
             }
             """
+            % (checkbox_unchecked_icon, checkbox_checked_icon)
         )
 
     def _log_startup_details(self) -> None:
