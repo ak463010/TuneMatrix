@@ -736,7 +736,7 @@ class MainWindow(QMainWindow):
                 selection-background-color: #2f568e;
                 selection-color: #ffffff;
             }
-            QLineEdit:focus, QComboBox:focus, QTableWidget:focus, QPlainTextEdit:focus {
+            QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus {
                 border: 1px solid #4068a3;
             }
             QComboBox::drop-down {
