@@ -417,9 +417,8 @@ class MainWindow(QMainWindow):
             button.setIconSize(QSize(16, 16))
 
         toolbar_layout.addWidget(self.import_button)
-        toolbar_layout.addStretch(2)
-        toolbar_layout.addWidget(self.remove_button)
         toolbar_layout.addStretch(1)
+        toolbar_layout.addWidget(self.remove_button)
         layout.addWidget(toolbar)
 
         self.song_table = AudioTableWidget()
@@ -1039,6 +1038,8 @@ class MainWindow(QMainWindow):
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        combo.setAttribute(Qt.WidgetAttribute.WA_NoMousePropagation, True)
         combo.setFixedHeight(20)
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.setMaxVisibleItems(len(BPM_RANGE_OPTIONS) + 2)
@@ -1057,6 +1058,8 @@ class MainWindow(QMainWindow):
         combo = QComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        combo.setAttribute(Qt.WidgetAttribute.WA_NoMousePropagation, True)
         combo.setFixedHeight(20)
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.addItem("Auto", None)

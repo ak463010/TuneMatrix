@@ -114,6 +114,17 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.song_table.columnWidth(2), 136)
         self.assertEqual(window.song_table.columnWidth(3), 136)
 
+    def test_table_combos_do_not_take_focus_or_propagate_mouse_events(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["table_combo_focus.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
+        key_hint_combo = window._table_combo_at(0, 3)
+
+        self.assertEqual(bpm_range_combo.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertEqual(key_hint_combo.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertTrue(bpm_range_combo.testAttribute(Qt.WidgetAttribute.WA_NoMousePropagation))
+        self.assertTrue(key_hint_combo.testAttribute(Qt.WidgetAttribute.WA_NoMousePropagation))
+
     def test_build_processing_options_only_uses_global_output_dir(self) -> None:
         window = self._build_window()
         window.output_dir_edit.setText("C:/temp/export")
