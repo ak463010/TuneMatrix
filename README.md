@@ -23,8 +23,10 @@ What works now:
 - analysis populates detected key plus derived relative and compatible keys
 - analysis supports per-song `BPM Range` and `Key Hint` table columns, both defaulting to `Auto`
 - `BPM Range` keeps preset dropdown choices and includes an explicit `Enter BPM...` manual option for values such as `128` or `120-130`
+- the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, stem selection, reference BPM/key toggles, and reference song
+- `Output Folder` remains a single global export setting and is persisted separately from per-song processing settings
 - worker-threaded analyze, tempo match, key shift, and export flows
-- project save/load with song state and control settings persisted to JSON
+- project save/load with song state and global output settings persisted to JSON
 - dependency-aware UI gating for unsupported actions
 - startup diagnostics limited to the dependencies the current runtime path actually uses
 - local test suite and CI workflow

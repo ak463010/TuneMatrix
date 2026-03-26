@@ -56,7 +56,7 @@ from utils import (
 )
 from workers import AnalyzeWorker, ProcessingWorker
 
-PROJECT_STATE_VERSION = 1
+PROJECT_STATE_VERSION = 2
 PROJECT_FILE_SUFFIX = ".tunematrix.json"
 PROJECT_FILE_FILTER = "TuneMatrix Project (*.tunematrix.json);;JSON Files (*.json)"
 ICON_DIR = Path(__file__).resolve().parent / "assets" / "icons"
@@ -126,6 +126,14 @@ class AudioTableWidget(QTableWidget):
             if is_supported_audio_file(file_path):
                 paths.append(file_path)
         return paths
+
+
+class MixedStateCheckBox(QCheckBox):
+    def nextCheckState(self) -> None:  # type: ignore[override]
+        if self.checkState() == Qt.CheckState.Checked:
+            self.setCheckState(Qt.CheckState.Unchecked)
+            return
+        self.setCheckState(Qt.CheckState.Checked)
 
 
 class WindowTitleBar(QFrame):
@@ -224,6 +232,7 @@ class MainWindow(QMainWindow):
         self.current_worker = None
         self.task_cancel_requested = False
         self.action_dependency_messages: dict[str, str] = {}
+        self._sidebar_binding_in_progress = False
 
         self.setWindowTitle("TuneMatrix")
         self.resize(1400, 900)
@@ -429,6 +438,7 @@ class MainWindow(QMainWindow):
         self.song_table.setShowGrid(True)
         self.song_table.files_dropped.connect(self.import_songs)
         self.song_table.itemSelectionChanged.connect(self._refresh_action_availability)
+        self.song_table.itemSelectionChanged.connect(self._load_processing_editor_from_selection)
 
         header = self.song_table.horizontalHeader()
         header.setStretchLastSection(False)
@@ -470,29 +480,41 @@ class MainWindow(QMainWindow):
         divider.setObjectName("sectionDivider")
         layout.addWidget(divider)
 
-        self.reference_checkbox = QCheckBox("Match to reference song")
-        self.reference_checkbox.setObjectName("panelCheck")
-        layout.addWidget(self.reference_checkbox)
+        self.editor_scope_label = QLabel("No song selected")
+        self.editor_scope_label.setObjectName("sectionTitle")
+        layout.addWidget(self.editor_scope_label)
+
+        self.editor_note_label = QLabel("Select one or more songs to edit their processing settings.")
+        self.editor_note_label.setObjectName("hintLabel")
+        self.editor_note_label.setWordWrap(True)
+        layout.addWidget(self.editor_note_label)
+
+        self.reference_bpm_checkbox = MixedStateCheckBox("Use Reference BPM")
+        self.reference_bpm_checkbox.setObjectName("panelCheck")
+        self.reference_bpm_checkbox.setTristate(True)
+        self.reference_bpm_checkbox.toggled.connect(self._update_reference_mode_ui)
+        self.reference_bpm_checkbox.stateChanged.connect(self._apply_reference_bpm_to_selection)
+        layout.addWidget(self.reference_bpm_checkbox)
+
+        self.reference_key_checkbox = MixedStateCheckBox("Use Reference Key")
+        self.reference_key_checkbox.setObjectName("panelCheck")
+        self.reference_key_checkbox.setTristate(True)
+        self.reference_key_checkbox.toggled.connect(self._update_reference_mode_ui)
+        self.reference_key_checkbox.stateChanged.connect(self._apply_reference_key_to_selection)
+        layout.addWidget(self.reference_key_checkbox)
 
         stem_label = QLabel("Stem Selection")
         stem_label.setObjectName("fieldLabel")
         layout.addWidget(stem_label)
 
-        self.stem_option_combo = QComboBox()
-        for stem_option in STEM_OPTIONS:
-            self.stem_option_combo.addItem(stem_option, stem_option)
-        self.stem_option_combo.setCurrentText("All stems")
-        self.stem_option_combo.setVisible(False)
-
         self.stem_checkboxes: dict[str, QCheckBox] = {}
         for display_label, stem_value in STEM_CHECKBOX_OPTIONS:
-            checkbox = QCheckBox(display_label)
+            checkbox = MixedStateCheckBox(display_label)
             checkbox.setObjectName("panelCheck")
-            checkbox.toggled.connect(self._sync_stem_option_from_checkboxes)
+            checkbox.setTristate(True)
+            checkbox.stateChanged.connect(self._apply_stem_selection_to_selected_songs)
             self.stem_checkboxes[stem_value] = checkbox
             layout.addWidget(checkbox)
-
-        self.stem_option_combo.currentIndexChanged.connect(self._sync_stem_checkboxes_from_combo)
 
         form_layout = QFormLayout()
         form_layout.setSpacing(8)
@@ -503,16 +525,20 @@ class MainWindow(QMainWindow):
         self.target_bpm_edit = QLineEdit()
         self.target_bpm_edit.setPlaceholderText("128")
         self.target_bpm_edit.setFixedHeight(28)
+        self.target_bpm_edit.editingFinished.connect(self._apply_target_bpm_to_selection)
 
         self.target_key_combo = QComboBox()
         self.target_key_combo.addItem("Unchanged", None)
         for key_name in KEY_OPTIONS:
             self.target_key_combo.addItem(key_name, key_name)
         self.target_key_combo.setFixedHeight(28)
+        self.target_key_combo.currentIndexChanged.connect(self._apply_target_key_to_selection)
 
         self.reference_combo = QComboBox()
         self.reference_combo.addItem("None", None)
         self.reference_combo.setFixedHeight(28)
+        self.reference_combo.currentIndexChanged.connect(self._update_reference_mode_ui)
+        self.reference_combo.currentIndexChanged.connect(self._apply_reference_song_to_selection)
 
         self.output_dir_edit = QLineEdit(default_export_dir())
         self.output_dir_edit.setFixedHeight(28)
@@ -532,46 +558,29 @@ class MainWindow(QMainWindow):
         form_layout.addRow("Target BPM", self.target_bpm_edit)
         form_layout.addRow("Target Key", self.target_key_combo)
         form_layout.addRow("Reference Song", self.reference_combo)
-        form_layout.addRow("Output Folder", output_row)
-
         layout.addLayout(form_layout)
 
-        override_label = QLabel("Song Overrides")
-        override_label.setObjectName("fieldLabel")
-        layout.addWidget(override_label)
-
-        override_note = QLabel("These controls are batch defaults. Apply them to selected songs to store per-song overrides.")
-        override_note.setObjectName("hintLabel")
-        override_note.setWordWrap(True)
-        layout.addWidget(override_note)
-
-        override_row = QWidget()
-        override_layout = QHBoxLayout(override_row)
-        override_layout.setContentsMargins(0, 0, 0, 0)
-        override_layout.setSpacing(8)
-
-        self.apply_song_overrides_button = QPushButton("Apply to Selected")
-        self.apply_song_overrides_button.setObjectName("inlineButton")
-        self.apply_song_overrides_button.setFixedHeight(28)
-        self.apply_song_overrides_button.clicked.connect(self.apply_processing_overrides_to_selected)
-
-        self.clear_song_overrides_button = QPushButton("Use Defaults")
-        self.clear_song_overrides_button.setObjectName("inlineButton")
-        self.clear_song_overrides_button.setFixedHeight(28)
-        self.clear_song_overrides_button.clicked.connect(self.clear_processing_overrides_for_selected)
-
-        override_layout.addWidget(self.apply_song_overrides_button, 1)
-        override_layout.addWidget(self.clear_song_overrides_button, 1)
-        layout.addWidget(override_row)
+        self.reference_note_label = QLabel("Reference song is used as the target source and will not be modified for the enabled dimensions.")
+        self.reference_note_label.setObjectName("hintLabel")
+        self.reference_note_label.setWordWrap(True)
+        self.reference_note_label.setVisible(False)
+        layout.addWidget(self.reference_note_label)
 
         layout.addStretch(1)
+
+        output_label = QLabel("Output Folder")
+        output_label.setObjectName("fieldLabel")
+        layout.addWidget(output_label)
+        layout.addWidget(output_row)
 
         hint_label = QLabel("Drag and drop mp3, wav, flac, or m4a files onto the song table.")
         hint_label.setWordWrap(True)
         hint_label.setObjectName("hintLabel")
         layout.addWidget(hint_label)
 
-        self._sync_stem_checkboxes_from_combo()
+        self.refresh_reference_combo()
+        self._update_reference_mode_ui()
+        self._load_processing_editor_from_selection()
         return panel
 
     def _build_action_bar(self) -> QWidget:
@@ -946,8 +955,6 @@ class MainWindow(QMainWindow):
         selection_controls = [
             self.remove_button,
             self.remove_action,
-            self.apply_song_overrides_button,
-            self.clear_song_overrides_button,
             *[control for controls in self._action_controls().values() for control in controls],
         ]
         has_selection = self.current_worker is None and self._has_song_selection()
@@ -1106,6 +1113,238 @@ class MainWindow(QMainWindow):
             return
         song.analysis_key_hint = str(key_hint or "").strip() or None
 
+    def _display_stem_list(self, stems: Optional[list[str]]) -> str:
+        if not stems or len(stems) == len(self.stem_checkboxes):
+            return "All stems"
+        return ", ".join(stems)
+
+    def _song_selected_stem_values(self, song: SongRecord) -> list[str]:
+        if not song.processing_selected_stems:
+            return list(self.stem_checkboxes)
+        return list(song.processing_selected_stems)
+
+    def _song_has_processing_settings(self, song: SongRecord) -> bool:
+        return bool(
+            song.processing_target_bpm is not None
+            or song.processing_target_key
+            or song.processing_selected_stems is not None
+            or song.use_reference_bpm
+            or song.use_reference_key
+            or song.reference_song_path
+        )
+
+    def _sync_song_processing_flag(self, song: SongRecord) -> None:
+        song.processing_override_enabled = self._song_has_processing_settings(song)
+
+    def _song_reference_name(self, reference_path: Optional[str]) -> str:
+        if not reference_path:
+            return "None"
+        song = self._song_for_path(reference_path)
+        return song.file_name if song else Path(reference_path).name
+
+    def _song_processing_override_tooltip(self, song: SongRecord) -> str:
+        if not self._song_has_processing_settings(song):
+            return ""
+
+        stems_label = self._display_stem_list(song.processing_selected_stems)
+        bpm_label = f"{song.processing_target_bpm:g}" if song.processing_target_bpm is not None else "Not set"
+        key_label = song.processing_target_key or "Unchanged"
+        return (
+            "Song processing\n"
+            f"Use Reference BPM: {'On' if song.use_reference_bpm else 'Off'}\n"
+            f"Use Reference Key: {'On' if song.use_reference_key else 'Off'}\n"
+            f"Reference Song: {self._song_reference_name(song.reference_song_path)}\n"
+            f"Target BPM: {bpm_label}\n"
+            f"Target Key: {key_label}\n"
+            f"Stems: {stems_label}"
+        )
+
+    def selected_stem_values(self) -> list[str]:
+        if not hasattr(self, "stem_checkboxes"):
+            return []
+        return [
+            stem_name
+            for stem_name, checkbox in self.stem_checkboxes.items()
+            if checkbox.checkState() == Qt.CheckState.Checked
+        ]
+
+    def _clear_special_combo_item(self, combo: QComboBox, token: str) -> None:
+        index = self._find_combo_index_by_data(combo, token)
+        if index >= 0:
+            combo.removeItem(index)
+
+    def _set_combo_mixed_state(self, combo: QComboBox, token: str) -> None:
+        index = self._find_combo_index_by_data(combo, token)
+        if index < 0:
+            combo.insertItem(0, "Mixed", token)
+            index = 0
+        combo.setCurrentIndex(index)
+
+    def _set_checkbox_state(self, checkbox: QCheckBox, state: Qt.CheckState) -> None:
+        checkbox.blockSignals(True)
+        checkbox.setCheckState(state)
+        checkbox.blockSignals(False)
+
+    def _set_song_bound_controls_enabled(self, enabled: bool) -> None:
+        for control in [
+            self.reference_bpm_checkbox,
+            self.reference_key_checkbox,
+            self.target_bpm_edit,
+            self.target_key_combo,
+            self.reference_combo,
+            *self.stem_checkboxes.values(),
+        ]:
+            control.setEnabled(enabled and self.current_worker is None)
+
+    def _load_processing_editor_from_selection(self) -> None:
+        if not hasattr(self, "editor_scope_label"):
+            return
+
+        selected_songs = self.selected_songs()
+        self._sidebar_binding_in_progress = True
+        try:
+            self._clear_special_combo_item(self.target_key_combo, "__mixed__")
+            self._clear_special_combo_item(self.reference_combo, "__mixed__")
+
+            if not selected_songs:
+                self.editor_scope_label.setText("No song selected")
+                self.editor_note_label.setText("Select one or more songs to edit their processing settings.")
+                self._set_song_bound_controls_enabled(False)
+                self._set_checkbox_state(self.reference_bpm_checkbox, Qt.CheckState.Unchecked)
+                self._set_checkbox_state(self.reference_key_checkbox, Qt.CheckState.Unchecked)
+                self.target_bpm_edit.clear()
+                self.target_bpm_edit.setPlaceholderText("Select a song")
+                self._set_combo_data(self.target_key_combo, None)
+                self._set_combo_data(self.reference_combo, None)
+                for checkbox in self.stem_checkboxes.values():
+                    self._set_checkbox_state(checkbox, Qt.CheckState.Unchecked)
+                self.reference_note_label.setVisible(False)
+            elif len(selected_songs) == 1:
+                song = selected_songs[0]
+                self.editor_scope_label.setText(f"Editing Song: {song.file_name}")
+                self.editor_note_label.setText("Changes in this panel update the selected song directly.")
+                self._set_song_bound_controls_enabled(True)
+                self._set_checkbox_state(
+                    self.reference_bpm_checkbox,
+                    Qt.CheckState.Checked if song.use_reference_bpm else Qt.CheckState.Unchecked,
+                )
+                self._set_checkbox_state(
+                    self.reference_key_checkbox,
+                    Qt.CheckState.Checked if song.use_reference_key else Qt.CheckState.Unchecked,
+                )
+                self.target_bpm_edit.setText("" if song.processing_target_bpm is None else f"{song.processing_target_bpm:g}")
+                self.target_bpm_edit.setPlaceholderText("Not set")
+                self._set_combo_data(self.target_key_combo, song.processing_target_key)
+                self._set_combo_data(self.reference_combo, song.reference_song_path)
+
+                selected_stems = set(self._song_selected_stem_values(song))
+                for stem_name, checkbox in self.stem_checkboxes.items():
+                    self._set_checkbox_state(
+                        checkbox,
+                        Qt.CheckState.Checked if stem_name in selected_stems else Qt.CheckState.Unchecked,
+                    )
+            else:
+                self.editor_scope_label.setText(f"Editing Songs: {len(selected_songs)}")
+                self.editor_note_label.setText("Changes in this panel apply to all selected songs. Mixed means values differ.")
+                self._set_song_bound_controls_enabled(True)
+
+                reference_bpm_values = {song.use_reference_bpm for song in selected_songs}
+                reference_key_values = {song.use_reference_key for song in selected_songs}
+                if len(reference_bpm_values) == 1:
+                    self._set_checkbox_state(
+                        self.reference_bpm_checkbox,
+                        Qt.CheckState.Checked if reference_bpm_values.pop() else Qt.CheckState.Unchecked,
+                    )
+                else:
+                    self._set_checkbox_state(self.reference_bpm_checkbox, Qt.CheckState.PartiallyChecked)
+                if len(reference_key_values) == 1:
+                    self._set_checkbox_state(
+                        self.reference_key_checkbox,
+                        Qt.CheckState.Checked if reference_key_values.pop() else Qt.CheckState.Unchecked,
+                    )
+                else:
+                    self._set_checkbox_state(self.reference_key_checkbox, Qt.CheckState.PartiallyChecked)
+
+                bpm_values = {song.processing_target_bpm for song in selected_songs}
+                if len(bpm_values) == 1:
+                    only_bpm = next(iter(bpm_values))
+                    self.target_bpm_edit.setText("" if only_bpm is None else f"{only_bpm:g}")
+                    self.target_bpm_edit.setPlaceholderText("Not set")
+                else:
+                    self.target_bpm_edit.clear()
+                    self.target_bpm_edit.setPlaceholderText("Mixed")
+
+                key_values = {song.processing_target_key for song in selected_songs}
+                if len(key_values) == 1:
+                    self._set_combo_data(self.target_key_combo, next(iter(key_values)))
+                else:
+                    self._set_combo_mixed_state(self.target_key_combo, "__mixed__")
+
+                reference_values = {song.reference_song_path for song in selected_songs}
+                if len(reference_values) == 1:
+                    self._set_combo_data(self.reference_combo, next(iter(reference_values)))
+                else:
+                    self._set_combo_mixed_state(self.reference_combo, "__mixed__")
+
+                stem_sets = [set(self._song_selected_stem_values(song)) for song in selected_songs]
+                for stem_name, checkbox in self.stem_checkboxes.items():
+                    checked_count = sum(1 for stem_set in stem_sets if stem_name in stem_set)
+                    if checked_count == 0:
+                        state = Qt.CheckState.Unchecked
+                    elif checked_count == len(stem_sets):
+                        state = Qt.CheckState.Checked
+                    else:
+                        state = Qt.CheckState.PartiallyChecked
+                    self._set_checkbox_state(checkbox, state)
+        finally:
+            self._sidebar_binding_in_progress = False
+            self._update_reference_mode_ui()
+
+    def _update_reference_mode_ui(self) -> None:
+        has_selection = bool(self.selected_songs())
+        bpm_state = self.reference_bpm_checkbox.checkState()
+        key_state = self.reference_key_checkbox.checkState()
+        use_reference_bpm = bpm_state == Qt.CheckState.Checked
+        use_reference_key = key_state == Qt.CheckState.Checked
+        has_mixed_reference_state = bpm_state == Qt.CheckState.PartiallyChecked or key_state == Qt.CheckState.PartiallyChecked
+
+        self.target_bpm_edit.setEnabled(has_selection and not use_reference_bpm and self.current_worker is None)
+        self.target_key_combo.setEnabled(has_selection and not use_reference_key and self.current_worker is None)
+        self.reference_combo.setEnabled(has_selection and self.current_worker is None)
+
+        self.target_bpm_edit.setToolTip("" if not use_reference_bpm else "Disabled while Use Reference BPM is enabled.")
+        self.target_key_combo.setToolTip("" if not use_reference_key else "Disabled while Use Reference Key is enabled.")
+
+        if not has_selection:
+            self.reference_note_label.setVisible(False)
+            return
+
+        if has_mixed_reference_state:
+            self.reference_note_label.setVisible(True)
+            self.reference_note_label.setText("Reference BPM/Key settings are mixed across the current selection.")
+            return
+
+        if not (use_reference_bpm or use_reference_key):
+            self.reference_note_label.setVisible(False)
+            return
+
+        enabled_dimensions = []
+        if use_reference_bpm:
+            enabled_dimensions.append("BPM")
+        if use_reference_key:
+            enabled_dimensions.append("Key")
+        dimensions_text = " and ".join(enabled_dimensions)
+
+        reference_name = "the selected reference song"
+        reference_path = self.reference_combo.currentData()
+        if reference_path and self.reference_combo.currentData() != "__mixed__":
+            reference_name = self._song_reference_name(reference_path)
+
+        self.reference_note_label.setVisible(True)
+        self.reference_note_label.setText(
+            f"{reference_name} is used as the target source for {dimensions_text} and will not be modified."
+        )
+
     def _parse_target_bpm_value(self) -> Optional[float]:
         bpm_text = self.target_bpm_edit.text().strip()
         if not bpm_text:
@@ -1115,127 +1354,99 @@ class MainWindow(QMainWindow):
         except ValueError:
             return None
 
-    def _normalized_processing_override_stems(self) -> Optional[list[str]]:
-        selected_stems = self.selected_stem_values()
-        if not selected_stems or len(selected_stems) == len(self.stem_checkboxes):
-            return None
-        return list(selected_stems)
-
-    def _song_processing_override_tooltip(self, song: SongRecord) -> str:
-        if not song.processing_override_enabled:
-            return ""
-
-        stems_label = ", ".join(song.processing_selected_stems or []) if song.processing_selected_stems else "All stems"
-        bpm_label = f"{song.processing_target_bpm:g}" if song.processing_target_bpm is not None else "Default / skip"
-        key_label = song.processing_target_key or "Default / unchanged"
-        return (
-            "Song override\n"
-            f"Target BPM: {bpm_label}\n"
-            f"Target Key: {key_label}\n"
-            f"Stems: {stems_label}"
-        )
-
-    def apply_processing_overrides_to_selected(self) -> None:
-        if not self._can_modify_project("changing song overrides"):
-            return
+    def _apply_processing_field_to_selected_songs(self, updater) -> list[SongRecord]:
+        if self._sidebar_binding_in_progress or self.current_worker is not None:
+            return []
 
         songs = self.selected_songs()
         if not songs:
-            self.show_warning("Select at least one song.")
+            return []
+
+        for song in songs:
+            updater(song)
+            self._sync_song_processing_flag(song)
+            row = self.find_song_row(song.file_path)
+            if row is not None:
+                self._populate_song_row(row, song)
+        return songs
+
+    def _apply_reference_bpm_to_selection(self, state: int) -> None:
+        if state == Qt.CheckState.PartiallyChecked.value:
             return
 
+        checked = state == Qt.CheckState.Checked.value
+        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "use_reference_bpm", checked))
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_reference_key_to_selection(self, state: int) -> None:
+        if state == Qt.CheckState.PartiallyChecked.value:
+            return
+
+        checked = state == Qt.CheckState.Checked.value
+        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "use_reference_key", checked))
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_target_bpm_to_selection(self) -> None:
         bpm_text = self.target_bpm_edit.text().strip()
         bpm_value = self._parse_target_bpm_value()
         if bpm_text and bpm_value is None:
-            self.show_warning("Target BPM must be a number before applying song overrides.")
+            self.show_warning("Target BPM must be a number.")
+            self._load_processing_editor_from_selection()
             return
         if bpm_value is not None and bpm_value <= 0:
             self.show_warning("Target BPM must be greater than zero.")
+            self._load_processing_editor_from_selection()
             return
 
+        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "processing_target_bpm", bpm_value))
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_target_key_to_selection(self) -> None:
         target_key = self.target_key_combo.currentData()
-        selected_stems_override = self._normalized_processing_override_stems()
-
-        for song in songs:
-            song.processing_override_enabled = True
-            song.processing_target_bpm = bpm_value
-            song.processing_target_key = target_key
-            song.processing_selected_stems = list(selected_stems_override) if selected_stems_override is not None else None
-            row = self.find_song_row(song.file_path)
-            if row is not None:
-                self._populate_song_row(row, song)
-
-        self.append_log(f"Applied processing overrides to {len(songs)} song(s).")
-
-    def clear_processing_overrides_for_selected(self) -> None:
-        if not self._can_modify_project("clearing song overrides"):
+        if target_key == "__mixed__":
             return
 
-        songs = self.selected_songs()
-        if not songs:
-            self.show_warning("Select at least one song.")
+        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "processing_target_key", target_key))
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_reference_song_to_selection(self) -> None:
+        reference_path = self.reference_combo.currentData()
+        if reference_path == "__mixed__":
             return
 
-        for song in songs:
-            song.processing_override_enabled = False
-            song.processing_target_bpm = None
-            song.processing_target_key = None
-            song.processing_selected_stems = None
-            row = self.find_song_row(song.file_path)
-            if row is not None:
-                self._populate_song_row(row, song)
+        songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "reference_song_path", reference_path))
+        if songs:
+            self._load_processing_editor_from_selection()
 
-        self.append_log(f"Cleared processing overrides for {len(songs)} song(s).")
-
-    def selected_stem_values(self) -> list[str]:
-        if not hasattr(self, "stem_checkboxes"):
-            return []
-        return [stem_name for stem_name, checkbox in self.stem_checkboxes.items() if checkbox.isChecked()]
-
-    def _sync_stem_checkboxes_from_combo(self) -> None:
-        if not hasattr(self, "stem_checkboxes"):
+    def _apply_stem_selection_to_selected_songs(self) -> None:
+        if self._sidebar_binding_in_progress:
             return
 
-        current_option = self.stem_option_combo.currentData() or "All stems"
-        if current_option == "All stems":
-            selected_values = set(self.stem_checkboxes)
-        else:
-            selected_values = {current_option}
-
-        for stem_name, checkbox in self.stem_checkboxes.items():
-            checkbox.blockSignals(True)
-            checkbox.setChecked(stem_name in selected_values)
-            checkbox.blockSignals(False)
-
-    def _sync_stem_option_from_checkboxes(self) -> None:
-        if not hasattr(self, "stem_option_combo"):
+        selected_states = {
+            stem_name: checkbox.checkState()
+            for stem_name, checkbox in self.stem_checkboxes.items()
+        }
+        if any(state == Qt.CheckState.PartiallyChecked for state in selected_states.values()):
             return
 
-        selected_values = self.selected_stem_values()
-        if not selected_values:
-            self._set_combo_data(self.stem_option_combo, "All stems")
-            self._sync_stem_checkboxes_from_combo()
-            return
-        if len(selected_values) == len(self.stem_checkboxes):
-            self._set_combo_data(self.stem_option_combo, "All stems")
-            return
-        if len(selected_values) == 1:
-            self._set_combo_data(self.stem_option_combo, selected_values[0])
-            return
+        selected_stems = [stem_name for stem_name, state in selected_states.items() if state == Qt.CheckState.Checked]
+        normalized_stems = None if not selected_stems or len(selected_stems) == len(self.stem_checkboxes) else selected_stems
 
-        self._set_combo_data(self.stem_option_combo, "All stems")
+        songs = self._apply_processing_field_to_selected_songs(
+            lambda song: setattr(song, "processing_selected_stems", list(normalized_stems) if normalized_stems is not None else None)
+        )
+        if songs:
+            self._load_processing_editor_from_selection()
 
     def collect_project_state(self) -> dict[str, object]:
         return {
             "format_version": PROJECT_STATE_VERSION,
             "songs": [song.to_dict() for song in self.songs],
             "ui": {
-                "target_bpm_text": self.target_bpm_edit.text().strip(),
-                "target_key": self.target_key_combo.currentData(),
-                "stem_option": self.stem_option_combo.currentData(),
-                "selected_stems": self.selected_stem_values(),
-                "match_to_reference": self.reference_checkbox.isChecked(),
-                "reference_song_path": self.reference_combo.currentData(),
                 "output_dir": self.output_dir_edit.text().strip(),
             },
         }
@@ -1273,6 +1484,24 @@ class MainWindow(QMainWindow):
             restored_songs.append(song)
 
         self.songs = restored_songs
+        legacy_target_bpm_text = str(ui_state.get("target_bpm_text") or "").strip()
+        legacy_target_bpm: Optional[float]
+        try:
+            legacy_target_bpm = float(legacy_target_bpm_text) if legacy_target_bpm_text else None
+        except ValueError:
+            legacy_target_bpm = None
+        legacy_target_key = ui_state.get("target_key")
+        legacy_selected_stems_raw = ui_state.get("selected_stems")
+        legacy_selected_stems = (
+            list(legacy_selected_stems_raw)
+            if isinstance(legacy_selected_stems_raw, list)
+            and 0 < len(legacy_selected_stems_raw) < len(self.stem_checkboxes)
+            else None
+        )
+        legacy_match_to_reference = bool(ui_state.get("match_to_reference", False))
+        legacy_use_reference_bpm = bool(ui_state.get("use_reference_bpm", legacy_match_to_reference))
+        legacy_use_reference_key = bool(ui_state.get("use_reference_key", legacy_match_to_reference))
+        legacy_reference_song_path = ui_state.get("reference_song_path")
         legacy_bpm_range_label = str(ui_state.get("bpm_range_label") or BPM_RANGE_DEFAULT_LABEL)
         legacy_key_hint = str(ui_state.get("analysis_key_hint") or "").strip() or None
         for song in self.songs:
@@ -1280,35 +1509,31 @@ class MainWindow(QMainWindow):
                 song.bpm_range_label = legacy_bpm_range_label
             if not song.analysis_key_hint and legacy_key_hint:
                 song.analysis_key_hint = legacy_key_hint
+            if song.processing_target_bpm is None and legacy_target_bpm is not None:
+                song.processing_target_bpm = legacy_target_bpm
+            if not song.processing_target_key and legacy_target_key:
+                song.processing_target_key = str(legacy_target_key)
+            if song.processing_selected_stems is None and legacy_selected_stems is not None:
+                song.processing_selected_stems = list(legacy_selected_stems)
+            if not song.use_reference_bpm and legacy_use_reference_bpm:
+                song.use_reference_bpm = True
+            if not song.use_reference_key and legacy_use_reference_key:
+                song.use_reference_key = True
+            if not song.reference_song_path and legacy_reference_song_path:
+                song.reference_song_path = str(legacy_reference_song_path)
+            self._sync_song_processing_flag(song)
         self.song_table.setRowCount(0)
         for song in self.songs:
             self._append_song_row(song)
 
-        self.target_bpm_edit.setText(str(ui_state.get("target_bpm_text") or ""))
-        self._set_combo_data(self.target_key_combo, ui_state.get("target_key"))
-        self._set_combo_data(self.stem_option_combo, ui_state.get("stem_option"))
-        selected_stems = ui_state.get("selected_stems")
-        if isinstance(selected_stems, list):
-            for stem_name, checkbox in self.stem_checkboxes.items():
-                checkbox.blockSignals(True)
-                checkbox.setChecked(stem_name in selected_stems)
-                checkbox.blockSignals(False)
-            self._sync_stem_option_from_checkboxes()
-        else:
-            self._sync_stem_checkboxes_from_combo()
-        self.reference_checkbox.setChecked(bool(ui_state.get("match_to_reference", False)))
         if "output_dir" in ui_state:
             self.output_dir_edit.setText(str(ui_state.get("output_dir") or ""))
         else:
             self.output_dir_edit.setText(default_export_dir())
 
         self.refresh_reference_combo()
-        reference_song_path = ui_state.get("reference_song_path")
-        self._set_combo_data(self.reference_combo, reference_song_path)
-        if reference_song_path and self.reference_combo.currentData() != reference_song_path:
-            self.append_log("Saved reference song was not found in the restored project.")
-
         self.progress_bar.setValue(0)
+        self._load_processing_editor_from_selection()
         self._refresh_action_availability()
         self.append_log(f"Loaded project with {len(self.songs)} song(s).")
         for file_name in missing_files:
@@ -1413,6 +1638,7 @@ class MainWindow(QMainWindow):
 
         if added_count:
             self.refresh_reference_combo()
+            self._load_processing_editor_from_selection()
 
     def remove_selected_songs(self) -> None:
         if not self._can_modify_project("removing songs"):
@@ -1429,6 +1655,7 @@ class MainWindow(QMainWindow):
             self.append_log(f"Removed {removed_song.file_name}")
 
         self.refresh_reference_combo()
+        self._load_processing_editor_from_selection()
 
     def clear_songs(self) -> None:
         if not self._can_modify_project("clearing the song list"):
@@ -1442,6 +1669,7 @@ class MainWindow(QMainWindow):
         self.refresh_reference_combo()
         self.progress_bar.setValue(0)
         self.append_log("Cleared the song list.")
+        self._load_processing_editor_from_selection()
 
     def selected_rows(self) -> list[int]:
         selection_model = self.song_table.selectionModel()
@@ -1454,13 +1682,39 @@ class MainWindow(QMainWindow):
         rows = self.selected_rows()
         return [self.songs[row] for row in rows]
 
-    def get_reference_song(self) -> Optional[SongRecord]:
-        reference_path = self.reference_combo.currentData()
+    def get_reference_song(self, song: SongRecord) -> Optional[SongRecord]:
+        reference_path = song.reference_song_path
         if not reference_path:
             return None
-        for song in self.songs:
-            if song.file_path == reference_path:
-                return song
+        return self._song_for_path(reference_path)
+
+    def _validate_selected_song_processing(self, action: str, songs: list[SongRecord]) -> Optional[str]:
+        for song in songs:
+            if song.processing_target_bpm is not None and song.processing_target_bpm <= 0:
+                return f"{song.file_name}: Target BPM must be greater than zero."
+            if song.use_reference_bpm and self.get_reference_song(song) is None:
+                return f"{song.file_name}: Choose a valid reference song for BPM matching."
+            if song.use_reference_key and self.get_reference_song(song) is None:
+                return f"{song.file_name}: Choose a valid reference song for key matching."
+
+        if action == "match_tempo":
+            missing_bpm_songs = [
+                song.file_name
+                for song in songs
+                if not song.use_reference_bpm and song.processing_target_bpm is None
+            ]
+            if missing_bpm_songs:
+                return "Each selected song needs a Target BPM or Use Reference BPM."
+
+        if action == "match_key":
+            missing_key_songs = [
+                song.file_name
+                for song in songs
+                if not song.use_reference_key and not song.processing_target_key
+            ]
+            if missing_key_songs:
+                return "Each selected song needs a Target Key or Use Reference Key."
+
         return None
 
     def start_analyze_task(self) -> None:
@@ -1504,68 +1758,22 @@ class MainWindow(QMainWindow):
             self.show_warning(message)
             return
 
-        options = self.build_processing_options()
-        reference_song = self.get_reference_song()
-        bpm_text = self.target_bpm_edit.text().strip()
-        target_bpm_value = self._parse_target_bpm_value()
-
-        if action in {"match_tempo", "process_all"} and bpm_text:
-            if target_bpm_value is None:
-                self.show_warning("Target BPM must be a number.")
-                return
-            if target_bpm_value <= 0:
-                self.show_warning("Target BPM must be greater than zero.")
-                return
-
-        if options.match_to_reference and reference_song is None:
-            self.show_warning("Choose a reference song or turn off reference matching.")
+        validation_error = self._validate_selected_song_processing(action, songs)
+        if validation_error:
+            self.show_warning(validation_error)
             return
 
-        if action == "match_tempo" and not options.match_to_reference:
-            missing_bpm_songs = [
-                song.file_name
-                for song in songs
-                if not song.processing_override_enabled and target_bpm_value is None
-                or (song.processing_override_enabled and song.processing_target_bpm is None)
-            ]
-            if missing_bpm_songs:
-                self.show_warning("Enter a target BPM, enable reference matching, or apply per-song BPM overrides.")
-                return
+        options = self.build_processing_options()
 
-        if action == "match_key" and not options.match_to_reference:
-            missing_key_songs = [
-                song.file_name
-                for song in songs
-                if not song.processing_override_enabled and not options.target_key
-                or (song.processing_override_enabled and not song.processing_target_key)
-            ]
-            if missing_key_songs:
-                self.show_warning("Choose a target key, enable reference matching, or apply per-song key overrides.")
-                return
-
-        if action == "export" and not self.output_dir_edit.text().strip():
+        if action == "export" and not options.output_dir:
             self.show_warning("Choose an export folder before exporting.")
             return
 
-        worker = ProcessingWorker(songs, options, action, reference_song=reference_song)
+        worker = ProcessingWorker(songs, options, action, all_songs=self.songs)
         self.start_worker(worker, action.replace("_", " ").title())
 
     def build_processing_options(self) -> ProcessingOptions:
-        selected_stems = self.selected_stem_values()
-        if not selected_stems or len(selected_stems) == len(self.stem_checkboxes):
-            stem_option = "All stems"
-        elif len(selected_stems) == 1:
-            stem_option = selected_stems[0]
-        else:
-            stem_option = "All stems"
-
         return ProcessingOptions(
-            stem_option=stem_option,
-            selected_stems=selected_stems,
-            target_bpm=self._parse_target_bpm_value(),
-            target_key=self.target_key_combo.currentData(),
-            match_to_reference=self.reference_checkbox.isChecked(),
-            reference_song_path=self.reference_combo.currentData(),
             output_dir=self.output_dir_edit.text().strip() or None,
         )
 
@@ -1603,6 +1811,7 @@ class MainWindow(QMainWindow):
             return
         self._populate_song_row(row, song)
         self.refresh_reference_combo()
+        self._load_processing_editor_from_selection()
 
     def find_song_row(self, file_path: str) -> Optional[int]:
         for index, song in enumerate(self.songs):
@@ -1633,15 +1842,8 @@ class MainWindow(QMainWindow):
             self.import_button,
             self.remove_button,
             self.clear_button,
-            self.reference_checkbox,
-            self.reference_combo,
-            self.target_bpm_edit,
-            self.target_key_combo,
-            self.stem_option_combo,
             self.output_dir_edit,
             self.output_browse_button,
-            self.apply_song_overrides_button,
-            self.clear_song_overrides_button,
             self.import_action,
             self.remove_action,
             self.clear_action,
@@ -1654,22 +1856,18 @@ class MainWindow(QMainWindow):
         self.cancel_button.setEnabled(running)
         self.cancel_button.setVisible(running)
         self.cancel_action.setEnabled(running)
+        self._load_processing_editor_from_selection()
         self._refresh_action_availability()
 
     def refresh_reference_combo(self) -> None:
-        current_value = self.reference_combo.currentData()
         self.reference_combo.blockSignals(True)
         self.reference_combo.clear()
         self.reference_combo.addItem("None", None)
         for song in self.songs:
             label = f"{song.file_name} | {format_bpm(song.bpm)} BPM | {format_key(song.musical_key)}"
             self.reference_combo.addItem(label, song.file_path)
-
-        if current_value:
-            index = self.reference_combo.findData(current_value)
-            if index >= 0:
-                self.reference_combo.setCurrentIndex(index)
         self.reference_combo.blockSignals(False)
+        self._load_processing_editor_from_selection()
 
     def browse_output_folder(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Choose Output Folder", self.output_dir_edit.text().strip())

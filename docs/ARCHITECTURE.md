@@ -19,18 +19,19 @@ Each record stores:
 
 - original file path and file name
 - analyzed metadata such as duration, BPM, detected key, relative key, and compatible keys
+- per-song processing settings such as target BPM, target key, selected stems, reference BPM/key toggles, and reference song
 - current UI status
 - generated stems directory
 - processed output path
 - last error text
 
-`ProcessingOptions` carries the current user-selected settings from the right control panel.
+`ProcessingOptions` now only carries the remaining global export settings needed by the workers.
 
 Project sessions are stored as JSON with:
 
 - a format version
 - serialized `SongRecord` entries
-- persisted UI state such as target BPM, target key, stem option, reference song, and export folder
+- persisted global UI state such as the export folder
 
 ## UI Flow
 
@@ -42,7 +43,7 @@ Key responsibilities:
 - save and restore project state
 - maintain the in-memory song list
 - mirror song data into the table
-- collect processing options from the controls panel
+- bind the right sidebar to the current song selection
 - create and manage worker threads
 - log progress and errors
 - gate actions based on missing dependencies
@@ -115,7 +116,7 @@ Project save/load is handled in `MainWindow`.
 
 The window:
 
-- collects current songs and control values into a JSON-safe dict
+- collects current songs and global output settings into a JSON-safe dict
 - writes the session to disk
 - restores songs, table rows, and control state from a saved project
 - marks missing source files as `Error` on restore instead of silently dropping them

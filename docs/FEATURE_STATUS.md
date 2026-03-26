@@ -39,7 +39,8 @@ This file describes the current implementation status against the requested feat
 - stem separation entry point using Demucs
 - tempo matching
 - key pitch shifting
-- reference-song matching for BPM and key target selection
+- per-song target BPM, target key, stem selection, reference BPM/key toggles, and reference-song selection through the right sidebar
+- global output-folder selection
 - process-all worker pipeline
 - export processed files and stems while keeping originals unchanged
 
@@ -49,7 +50,7 @@ This file describes the current implementation status against the requested feat
 - readable log and message-box errors
 - automated unittest suite
 - GitHub Actions test workflow
-- JSON project persistence with song metadata and UI settings
+- JSON project persistence with song metadata and global output settings
 
 ## Partially Implemented
 

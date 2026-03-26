@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import QApplication
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
@@ -28,13 +28,31 @@ class MainWindowTests(unittest.TestCase):
         self.addCleanup(window.close)
         return window
 
+    def _import_files(self, window: MainWindow, names: list[str]) -> list[Path]:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        paths: list[Path] = []
+        for name in names:
+            path = Path(temp_dir.name) / name
+            path.write_bytes(b"test")
+            paths.append(path)
+        window.import_songs([str(path) for path in paths])
+        return paths
+
+    def _select_rows(self, window: MainWindow, rows: list[int]) -> None:
+        selection_model = window.song_table.selectionModel()
+        selection_model.clearSelection()
+        for row in rows:
+            selection_model.select(
+                window.song_table.model().index(row, 0),
+                QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+            )
+
     def test_action_availability_reflects_dependency_messages(self) -> None:
         window = self._build_window()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "availability.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
+        self._import_files(window, ["availability.wav"])
         window.song_table.selectRow(0)
+
         with patch(
             "main_window.action_base_requirement_message",
             side_effect=lambda action: {"separate": "Stem dependency missing.", "process_all": "Stem dependency missing."}.get(action),
@@ -48,16 +66,11 @@ class MainWindowTests(unittest.TestCase):
 
     def test_song_actions_stay_disabled_without_selection(self) -> None:
         window = self._build_window()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "selection.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
+        self._import_files(window, ["selection.wav"])
 
         self.assertFalse(window.remove_button.isEnabled())
         self.assertFalse(window.analyze_button.isEnabled())
         self.assertFalse(window.export_button.isEnabled())
-        self.assertFalse(window.apply_song_overrides_button.isEnabled())
-        self.assertFalse(window.clear_song_overrides_button.isEnabled())
         self.assertEqual(window.analyze_button.toolTip(), "Select at least one song.")
 
         window.song_table.selectRow(0)
@@ -65,80 +78,175 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.remove_button.isEnabled())
         self.assertTrue(window.analyze_button.isEnabled())
         self.assertTrue(window.export_button.isEnabled())
-        self.assertTrue(window.apply_song_overrides_button.isEnabled())
-        self.assertTrue(window.clear_song_overrides_button.isEnabled())
 
     def test_clickable_controls_use_pointing_hand_cursor(self) -> None:
         window = self._build_window()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "cursor.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            bpm_range_combo = window._table_combo_at(0, 2)
-            key_hint_combo = window._table_combo_at(0, 3)
+        self._import_files(window, ["cursor.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
+        key_hint_combo = window._table_combo_at(0, 3)
 
         self.assertEqual(window.import_button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
-        self.assertEqual(window.reference_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(window.reference_bpm_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(window.reference_key_checkbox.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(bpm_range_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(key_hint_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.target_key_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(window.song_table.viewport().cursor().shape(), Qt.CursorShape.ArrowCursor)
-        self.assertTrue(window.song_table.hasMouseTracking())
-        self.assertTrue(window.song_table.viewport().hasMouseTracking())
 
     def test_bpm_range_combo_keeps_dropdown_options_and_manual_entry_item(self) -> None:
         window = self._build_window()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "dropdown.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            bpm_range_combo = window._table_combo_at(0, 2)
+        self._import_files(window, ["dropdown.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
 
         self.assertFalse(bpm_range_combo.isEditable())
         dropdown_items = [bpm_range_combo.itemText(index) for index in range(bpm_range_combo.count())]
         self.assertIn("60 - 90 BPM", dropdown_items)
         self.assertIn("Enter BPM...", dropdown_items)
 
-    def test_bpm_range_and_key_hint_columns_use_matching_width(self) -> None:
+    def test_table_combos_use_compact_fixed_height(self) -> None:
         window = self._build_window()
+        self._import_files(window, ["rowfill.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
+        key_hint_combo = window._table_combo_at(0, 3)
 
-        self.assertEqual(window.song_table.columnWidth(2), 136)
-        self.assertEqual(window.song_table.columnWidth(3), 136)
-
-    def test_table_combos_use_direct_cell_widgets_with_compact_fixed_height(self) -> None:
-        window = self._build_window()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "rowfill.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            bpm_range_combo = window._table_combo_at(0, 2)
-            key_hint_combo = window._table_combo_at(0, 3)
-
-        self.assertIs(window.song_table.cellWidget(0, 2), bpm_range_combo)
-        self.assertIs(window.song_table.cellWidget(0, 3), key_hint_combo)
         self.assertEqual(window.song_table.verticalHeader().defaultSectionSize(), 28)
         self.assertEqual(bpm_range_combo.minimumHeight(), 20)
         self.assertEqual(key_hint_combo.minimumHeight(), 20)
-        self.assertEqual(bpm_range_combo.maximumHeight(), 20)
-        self.assertEqual(key_hint_combo.maximumHeight(), 20)
+        self.assertEqual(window.song_table.columnWidth(2), 136)
+        self.assertEqual(window.song_table.columnWidth(3), 136)
 
-    def test_build_processing_options_parses_form_values(self) -> None:
+    def test_build_processing_options_only_uses_global_output_dir(self) -> None:
         window = self._build_window()
-
-        window.target_bpm_edit.setText("128.5")
-        window.target_key_combo.setCurrentText("C Major")
-        window.stem_option_combo.setCurrentText("Bass")
-        window.reference_checkbox.setChecked(True)
         window.output_dir_edit.setText("C:/temp/export")
 
         options = window.build_processing_options()
 
-        self.assertEqual(options.target_bpm, 128.5)
-        self.assertEqual(options.target_key, "C Major")
-        self.assertEqual(options.stem_option, "Bass")
-        self.assertEqual(options.selected_stems, ["Bass"])
-        self.assertTrue(options.match_to_reference)
         self.assertEqual(options.output_dir, "C:/temp/export")
+        self.assertIsNone(options.target_bpm)
+        self.assertIsNone(options.target_key)
+        self.assertFalse(options.use_reference_bpm)
+        self.assertFalse(options.use_reference_key)
+
+    def test_single_selection_loads_song_bound_values_into_editor(self) -> None:
+        window = self._build_window()
+        paths = self._import_files(window, ["song_a.wav", "song_b.wav"])
+
+        song = window.songs[0]
+        song.use_reference_bpm = True
+        song.use_reference_key = False
+        song.processing_target_bpm = 128.0
+        song.processing_target_key = "A Minor"
+        song.processing_selected_stems = ["Vocals", "Bass"]
+        song.reference_song_path = str(paths[1].resolve())
+        window.refresh_reference_combo()
+        window.song_table.selectRow(0)
+
+        self.assertEqual(window.editor_scope_label.text(), "Editing Song: song_a.wav")
+        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.Checked)
+        self.assertEqual(window.reference_key_checkbox.checkState(), Qt.CheckState.Unchecked)
+        self.assertEqual(window.target_bpm_edit.text(), "128")
+        self.assertEqual(window.target_key_combo.currentData(), "A Minor")
+        self.assertEqual(window.reference_combo.currentData(), str(paths[1].resolve()))
+        self.assertTrue(window.stem_checkboxes["Vocals"].isChecked())
+        self.assertTrue(window.stem_checkboxes["Bass"].isChecked())
+        self.assertFalse(window.stem_checkboxes["Drums"].isChecked())
+
+    def test_switching_selected_song_reloads_editor_values(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.songs[0].processing_target_bpm = 120.0
+        window.songs[1].processing_target_bpm = 145.0
+        window.songs[0].processing_target_key = "C Major"
+        window.songs[1].processing_target_key = "F Minor"
+
+        window.song_table.selectRow(0)
+        self.assertEqual(window.target_bpm_edit.text(), "120")
+        self.assertEqual(window.target_key_combo.currentData(), "C Major")
+
+        window.song_table.selectRow(1)
+        self.assertEqual(window.target_bpm_edit.text(), "145")
+        self.assertEqual(window.target_key_combo.currentData(), "F Minor")
+
+    def test_multi_selection_shows_mixed_state(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["a.wav", "b.wav"])
+        window.songs[0].processing_target_bpm = 120.0
+        window.songs[1].processing_target_bpm = 140.0
+        window.songs[0].processing_target_key = "A Minor"
+        window.songs[1].processing_target_key = "C Major"
+        window.songs[0].use_reference_bpm = True
+        window.songs[1].use_reference_bpm = False
+
+        self._select_rows(window, [0, 1])
+
+        self.assertEqual(window.editor_scope_label.text(), "Editing Songs: 2")
+        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.PartiallyChecked)
+        self.assertEqual(window.target_bpm_edit.text(), "")
+        self.assertEqual(window.target_bpm_edit.placeholderText(), "Mixed")
+        self.assertEqual(window.target_key_combo.currentText(), "Mixed")
+
+    def test_clicking_mixed_reference_checkbox_applies_checked_state_to_all_selected_songs(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["a.wav", "b.wav"])
+        window.songs[0].use_reference_bpm = True
+        window.songs[1].use_reference_bpm = False
+        self._select_rows(window, [0, 1])
+
+        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.PartiallyChecked)
+
+        window.reference_bpm_checkbox.click()
+
+        self.assertTrue(window.songs[0].use_reference_bpm)
+        self.assertTrue(window.songs[1].use_reference_bpm)
+        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.Checked)
+
+    def test_editing_single_song_updates_song_processing_fields(self) -> None:
+        window = self._build_window()
+        paths = self._import_files(window, ["edit.wav", "reference.wav"])
+        window.song_table.selectRow(0)
+
+        window.target_bpm_edit.setText("128")
+        window.target_bpm_edit.editingFinished.emit()
+        window.target_key_combo.setCurrentText("A Minor")
+        window.reference_bpm_checkbox.setChecked(True)
+        reference_index = window.reference_combo.findData(str(paths[1].resolve()))
+        window.reference_combo.setCurrentIndex(reference_index)
+
+        window.stem_checkboxes["Instrumental / No vocals"].setCheckState(Qt.CheckState.Unchecked)
+        window.stem_checkboxes["Drums"].setCheckState(Qt.CheckState.Unchecked)
+        window.stem_checkboxes["Other"].setCheckState(Qt.CheckState.Unchecked)
+
+        song = window.songs[0]
+        self.assertEqual(song.processing_target_bpm, 128.0)
+        self.assertEqual(song.processing_target_key, "A Minor")
+        self.assertTrue(song.use_reference_bpm)
+        self.assertEqual(song.reference_song_path, str(paths[1].resolve()))
+        self.assertEqual(song.processing_selected_stems, ["Vocals", "Bass"])
+        self.assertTrue(song.processing_override_enabled)
+
+    def test_editing_multi_selection_applies_to_all_selected_songs(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        self._select_rows(window, [0, 1])
+
+        window.target_key_combo.setCurrentText("C Major")
+        window.reference_key_checkbox.setChecked(True)
+
+        self.assertEqual(window.songs[0].processing_target_key, "C Major")
+        self.assertEqual(window.songs[1].processing_target_key, "C Major")
+        self.assertTrue(window.songs[0].use_reference_key)
+        self.assertTrue(window.songs[1].use_reference_key)
+
+    def test_output_folder_stays_global_when_selection_changes(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.output_dir_edit.setText("D:/exports")
+
+        window.song_table.selectRow(0)
+        self.assertEqual(window.output_dir_edit.text(), "D:/exports")
+
+        window.song_table.selectRow(1)
+        self.assertEqual(window.output_dir_edit.text(), "D:/exports")
 
     def test_import_songs_adds_one_row_and_skips_duplicate(self) -> None:
         window = self._build_window()
@@ -146,7 +254,6 @@ class MainWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             wav_path = Path(temp_dir) / "demo.wav"
             wav_path.write_bytes(b"test")
-
             window.import_songs([str(wav_path)])
             window.import_songs([str(wav_path)])
 
@@ -156,11 +263,8 @@ class MainWindowTests(unittest.TestCase):
 
     def test_start_analyze_task_blocks_when_runtime_issue_exists(self) -> None:
         window = self._build_window()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "demo.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
+        self._import_files(window, ["demo.wav"])
+        window.song_table.selectRow(0)
 
         with patch("main_window.action_runtime_issues", return_value=["Runtime issue"]), patch.object(
             window, "show_warning", Mock()
@@ -170,18 +274,11 @@ class MainWindowTests(unittest.TestCase):
         show_warning.assert_called_once()
         self.assertIsNone(window.current_worker)
 
-    def test_match_tempo_accepts_selected_song_override_without_global_target(self) -> None:
+    def test_match_tempo_uses_song_bound_target_without_reference(self) -> None:
         window = self._build_window()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "override_match.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-
+        self._import_files(window, ["override_match.wav"])
         window.song_table.selectRow(0)
-        window.songs[0].processing_override_enabled = True
         window.songs[0].processing_target_bpm = 128.0
-        window.target_bpm_edit.clear()
 
         with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
             window, "start_worker", Mock()
@@ -191,126 +288,51 @@ class MainWindowTests(unittest.TestCase):
         show_warning.assert_not_called()
         start_worker.assert_called_once()
 
-    def test_collect_project_state_serializes_songs_and_ui(self) -> None:
+    def test_match_key_requires_song_bound_target_or_reference(self) -> None:
         window = self._build_window()
+        self._import_files(window, ["match_key.wav"])
+        window.song_table.selectRow(0)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "demo.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            bpm_range_combo = window._table_combo_at(0, 2)
-            key_hint_combo = window._table_combo_at(0, 3)
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "show_warning", Mock()
+        ) as show_warning:
+            window.start_processing_task("match_key")
 
-        bpm_range_combo.setCurrentText("90 - 120 BPM")
-        key_hint_combo.setCurrentText("G Major")
-        window.target_bpm_edit.setText("126")
-        window.target_key_combo.setCurrentText("A Minor")
-        window.stem_option_combo.setCurrentText("Vocals")
-        window.reference_checkbox.setChecked(True)
-        window.reference_combo.setCurrentIndex(1)
+        show_warning.assert_called_once()
+        self.assertIn("Target Key", show_warning.call_args[0][0])
+
+    def test_collect_project_state_serializes_song_bound_processing_and_global_output(self) -> None:
+        window = self._build_window()
+        paths = self._import_files(window, ["demo.wav"])
+
+        song = window.songs[0]
+        song.bpm_range_label = "90 - 120 BPM"
+        song.analysis_key_hint = "G Major"
+        song.processing_target_bpm = 126.0
+        song.processing_target_key = "A Minor"
+        song.processing_selected_stems = ["Vocals", "Bass"]
+        song.use_reference_bpm = True
+        song.reference_song_path = str(paths[0].resolve())
         window.output_dir_edit.setText("C:/exports")
 
         state = window.collect_project_state()
 
         self.assertEqual(state["format_version"], PROJECT_STATE_VERSION)
-        self.assertEqual(len(state["songs"]), 1)
-        self.assertEqual(state["songs"][0]["file_name"], "demo.wav")
-        self.assertEqual(state["songs"][0]["bpm_range_label"], "90 - 120 BPM")
-        self.assertEqual(state["songs"][0]["analysis_key_hint"], "G Major")
-        self.assertFalse(state["songs"][0]["processing_override_enabled"])
-        self.assertIsNone(state["songs"][0]["processing_target_bpm"])
-        self.assertIsNone(state["songs"][0]["processing_target_key"])
-        self.assertIsNone(state["songs"][0]["processing_selected_stems"])
-        self.assertEqual(state["songs"][0]["relative_key"], None)
-        self.assertEqual(state["songs"][0]["compatible_keys"], [])
-        self.assertEqual(state["ui"]["target_bpm_text"], "126")
-        self.assertEqual(state["ui"]["target_key"], "A Minor")
-        self.assertEqual(state["ui"]["stem_option"], "Vocals")
-        self.assertEqual(state["ui"]["selected_stems"], ["Vocals"])
-        self.assertTrue(state["ui"]["match_to_reference"])
-        self.assertEqual(state["ui"]["reference_song_path"], str(wav_path.resolve()))
-        self.assertEqual(state["ui"]["output_dir"], "C:/exports")
+        self.assertEqual(state["songs"][0]["processing_target_bpm"], 126.0)
+        self.assertEqual(state["songs"][0]["processing_target_key"], "A Minor")
+        self.assertEqual(state["songs"][0]["processing_selected_stems"], ["Vocals", "Bass"])
+        self.assertTrue(state["songs"][0]["use_reference_bpm"])
+        self.assertEqual(state["songs"][0]["reference_song_path"], str(paths[0].resolve()))
+        self.assertEqual(state["ui"], {"output_dir": "C:/exports"})
 
-    def test_manual_bpm_range_value_is_preserved_in_song_row_and_project_state(self) -> None:
-        window = self._build_window()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "manual.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            bpm_range_combo = window._table_combo_at(0, 2)
-
-        window._set_song_bpm_range_combo_value(bpm_range_combo, "128")
-        window.songs[0].bpm_range_label = "128"
-
-        state = window.collect_project_state()
-
-        self.assertEqual(window.songs[0].bpm_range_label, "128")
-        self.assertEqual(window._table_combo_at(0, 2).currentText(), "128")
-        self.assertEqual(state["songs"][0]["bpm_range_label"], "128")
-
-    def test_manual_bpm_range_prompt_updates_song_value(self) -> None:
-        window = self._build_window()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "manual_prompt.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            bpm_range_combo = window._table_combo_at(0, 2)
-
-        manual_index = next(
-            index for index in range(bpm_range_combo.count()) if bpm_range_combo.itemText(index) == "Enter BPM..."
-        )
-        with patch("main_window.QInputDialog.getText", return_value=("128", True)):
-            bpm_range_combo.setCurrentIndex(manual_index)
-
-        self.assertEqual(window.songs[0].bpm_range_label, "128")
-        self.assertEqual(window._table_combo_at(0, 2).currentText(), "128")
-
-    def test_apply_and_clear_processing_overrides_for_selected_songs(self) -> None:
-        window = self._build_window()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "override.wav"
-            wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-
-        window.song_table.selectRow(0)
-        window.target_bpm_edit.setText("128")
-        window.target_key_combo.setCurrentText("A Minor")
-        for checkbox in window.stem_checkboxes.values():
-            checkbox.blockSignals(True)
-            checkbox.setChecked(False)
-            checkbox.blockSignals(False)
-        window.stem_checkboxes["Vocals"].blockSignals(True)
-        window.stem_checkboxes["Vocals"].setChecked(True)
-        window.stem_checkboxes["Vocals"].blockSignals(False)
-        window.stem_checkboxes["Bass"].blockSignals(True)
-        window.stem_checkboxes["Bass"].setChecked(True)
-        window.stem_checkboxes["Bass"].blockSignals(False)
-        window._sync_stem_option_from_checkboxes()
-
-        window.apply_processing_overrides_to_selected()
-
-        song = window.songs[0]
-        self.assertTrue(song.processing_override_enabled)
-        self.assertEqual(song.processing_target_bpm, 128.0)
-        self.assertEqual(song.processing_target_key, "A Minor")
-        self.assertEqual(song.processing_selected_stems, ["Vocals", "Bass"])
-
-        window.clear_processing_overrides_for_selected()
-
-        self.assertFalse(song.processing_override_enabled)
-        self.assertIsNone(song.processing_target_bpm)
-        self.assertIsNone(song.processing_target_key)
-        self.assertIsNone(song.processing_selected_stems)
-
-    def test_apply_project_state_restores_songs_and_controls(self) -> None:
+    def test_apply_project_state_restores_song_bound_processing_controls(self) -> None:
         window = self._build_window()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             wav_path = Path(temp_dir) / "restored.wav"
+            ref_path = Path(temp_dir) / "reference.wav"
             wav_path.write_bytes(b"test")
+            ref_path.write_bytes(b"test")
 
             window.apply_project_state(
                 {
@@ -319,127 +341,92 @@ class MainWindowTests(unittest.TestCase):
                         {
                             "file_path": str(wav_path),
                             "file_name": "restored.wav",
-                            "bpm_range_label": "140 - 160 BPM",
-                            "analysis_key_hint": "G Minor",
-                            "processing_override_enabled": True,
                             "processing_target_bpm": 132.0,
                             "processing_target_key": "A Minor",
                             "processing_selected_stems": ["Vocals", "Bass"],
-                            "duration": 91.2,
-                            "bpm": 128.0,
-                            "musical_key": "C Minor",
-                            "relative_key": "D# Major",
-                            "compatible_keys": ["G Minor", "A# Major", "F Minor"],
-                            "status": "Analyzed",
-                            "stems_dir": None,
-                            "processed_path": None,
-                            "last_error": None,
-                        }
+                            "use_reference_bpm": True,
+                            "use_reference_key": False,
+                            "reference_song_path": str(ref_path),
+                            "status": "Imported",
+                        },
+                        {
+                            "file_path": str(ref_path),
+                            "file_name": "reference.wav",
+                            "status": "Imported",
+                        },
+                    ],
+                    "ui": {
+                        "output_dir": "D:/processed",
+                    },
+                }
+            )
+
+        window.song_table.selectRow(0)
+
+        self.assertEqual(window.output_dir_edit.text(), "D:/processed")
+        self.assertEqual(window.target_bpm_edit.text(), "132")
+        self.assertEqual(window.target_key_combo.currentData(), "A Minor")
+        self.assertEqual(window.reference_combo.currentData(), str(ref_path))
+        self.assertEqual(window.reference_bpm_checkbox.checkState(), Qt.CheckState.Checked)
+        self.assertEqual(window.reference_key_checkbox.checkState(), Qt.CheckState.Unchecked)
+        self.assertTrue(window.stem_checkboxes["Vocals"].isChecked())
+        self.assertTrue(window.stem_checkboxes["Bass"].isChecked())
+
+    def test_apply_project_state_migrates_legacy_global_processing_settings_to_songs(self) -> None:
+        window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "legacy.wav"
+            ref_path = Path(temp_dir) / "reference.wav"
+            wav_path.write_bytes(b"test")
+            ref_path.write_bytes(b"test")
+
+            window.apply_project_state(
+                {
+                    "format_version": 1,
+                    "songs": [
+                        {
+                            "file_path": str(wav_path),
+                            "file_name": "legacy.wav",
+                            "status": "Imported",
+                        },
+                        {
+                            "file_path": str(ref_path),
+                            "file_name": "reference.wav",
+                            "status": "Imported",
+                        },
                     ],
                     "ui": {
                         "target_bpm_text": "128",
                         "target_key": "C Minor",
-                        "stem_option": "All stems",
                         "selected_stems": ["Bass", "Drums"],
-                        "match_to_reference": True,
-                        "reference_song_path": str(wav_path),
+                        "use_reference_bpm": True,
+                        "use_reference_key": False,
+                        "reference_song_path": str(ref_path),
                         "output_dir": "D:/processed",
                     },
                 }
             )
 
-        self.assertEqual(len(window.songs), 1)
-        self.assertEqual(window.song_table.rowCount(), 1)
-        self.assertEqual(window.song_table.item(0, 0).text(), "restored.wav")
-        self.assertEqual(window._table_combo_at(0, 2).currentText(), "140 - 160 BPM")
-        self.assertEqual(window._table_combo_at(0, 3).currentData(), "G Minor")
-        self.assertTrue(window.songs[0].processing_override_enabled)
-        self.assertEqual(window.songs[0].processing_target_bpm, 132.0)
-        self.assertEqual(window.songs[0].processing_target_key, "A Minor")
-        self.assertEqual(window.songs[0].processing_selected_stems, ["Vocals", "Bass"])
-        self.assertEqual(window.target_bpm_edit.text(), "128")
-        self.assertEqual(window.target_key_combo.currentData(), "C Minor")
-        self.assertEqual(window.stem_option_combo.currentData(), "All stems")
-        self.assertEqual(window.selected_stem_values(), ["Drums", "Bass"])
-        self.assertEqual(window.song_table.item(0, 7).text(), "D# Major")
-        self.assertEqual(window.song_table.item(0, 8).text(), "G Minor, A# Major, F Minor")
-        self.assertTrue(window.reference_checkbox.isChecked())
-        self.assertEqual(window.reference_combo.currentData(), str(wav_path))
-        self.assertEqual(window.output_dir_edit.text(), "D:/processed")
+        migrated_song = window.songs[0]
+        self.assertEqual(migrated_song.processing_target_bpm, 128.0)
+        self.assertEqual(migrated_song.processing_target_key, "C Minor")
+        self.assertEqual(migrated_song.processing_selected_stems, ["Bass", "Drums"])
+        self.assertTrue(migrated_song.use_reference_bpm)
+        self.assertFalse(migrated_song.use_reference_key)
+        self.assertEqual(migrated_song.reference_song_path, str(ref_path))
 
-    def test_project_save_and_load_round_trip(self) -> None:
-        source_window = self._build_window()
-        restored_window = self._build_window()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "roundtrip.wav"
-            project_path = Path(temp_dir) / "session.tunematrix.json"
-            wav_path.write_bytes(b"test")
-
-            source_window.import_songs([str(wav_path)])
-            source_window._table_combo_at(0, 2).setCurrentText("60 - 90 BPM")
-            source_window._table_combo_at(0, 3).setCurrentText("A Minor")
-            source_window.target_bpm_edit.setText("110")
-            source_window.target_key_combo.setCurrentText("G Major")
-            source_window.stem_option_combo.setCurrentText("Drums")
-            source_window.reference_combo.setCurrentIndex(1)
-            source_window.reference_checkbox.setChecked(True)
-            source_window.output_dir_edit.setText(str(Path(temp_dir) / "exports"))
-
-            source_window._save_project_to_path(str(project_path))
-            restored_window._load_project_from_path(str(project_path))
-
-        self.assertEqual(len(restored_window.songs), 1)
-        self.assertEqual(restored_window.songs[0].file_name, "roundtrip.wav")
-        self.assertEqual(restored_window._table_combo_at(0, 2).currentText(), "60 - 90 BPM")
-        self.assertEqual(restored_window._table_combo_at(0, 3).currentData(), "A Minor")
-        self.assertEqual(restored_window.target_bpm_edit.text(), "110")
-        self.assertEqual(restored_window.target_key_combo.currentData(), "G Major")
-        self.assertEqual(restored_window.stem_option_combo.currentData(), "Drums")
-        self.assertEqual(restored_window.selected_stem_values(), ["Drums"])
-        self.assertTrue(restored_window.reference_checkbox.isChecked())
-        self.assertEqual(restored_window.reference_combo.currentData(), str(wav_path.resolve()))
-
-    def test_apply_project_state_restores_manual_bpm_range_text(self) -> None:
+    def test_manual_bpm_range_prompt_updates_song_value(self) -> None:
         window = self._build_window()
+        self._import_files(window, ["manual_prompt.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            wav_path = Path(temp_dir) / "manual_restore.wav"
-            wav_path.write_bytes(b"test")
+        manual_index = next(index for index in range(bpm_range_combo.count()) if bpm_range_combo.itemText(index) == "Enter BPM...")
+        with patch("main_window.QInputDialog.getText", return_value=("128", True)):
+            bpm_range_combo.setCurrentIndex(manual_index)
 
-            window.apply_project_state(
-                {
-                    "format_version": PROJECT_STATE_VERSION,
-                    "songs": [
-                        {
-                            "file_path": str(wav_path),
-                            "file_name": "manual_restore.wav",
-                            "bpm_range_label": "127.5",
-                            "analysis_key_hint": None,
-                            "duration": None,
-                            "bpm": None,
-                            "musical_key": None,
-                            "relative_key": None,
-                            "compatible_keys": [],
-                            "status": "Imported",
-                            "stems_dir": None,
-                            "processed_path": None,
-                            "last_error": None,
-                        }
-                    ],
-                    "ui": {
-                        "target_bpm_text": "",
-                        "target_key": None,
-                        "stem_option": "All stems",
-                        "selected_stems": ["Vocals", "Instrumental / No vocals", "Drums", "Bass", "Other"],
-                        "match_to_reference": False,
-                        "reference_song_path": None,
-                        "output_dir": "D:/processed",
-                    },
-                }
-            )
-
-        self.assertEqual(window._table_combo_at(0, 2).currentText(), "127.5")
+        self.assertEqual(window.songs[0].bpm_range_label, "128")
+        self.assertEqual(window._table_combo_at(0, 2).currentText(), "128")
 
 
 if __name__ == "__main__":

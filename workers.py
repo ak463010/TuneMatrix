@@ -129,13 +129,13 @@ class ProcessingWorker(BaseWorker):
         songs: list[SongRecord],
         options: ProcessingOptions,
         action: str,
-        reference_song: Optional[SongRecord] = None,
+        all_songs: Optional[list[SongRecord]] = None,
     ) -> None:
         super().__init__()
         self.songs = songs
         self.options = options
         self.action = action
-        self.reference_song = reference_song
+        self.song_lookup = {song.file_path: song for song in (all_songs or songs)}
 
     @Slot()
     def run(self) -> None:
@@ -156,14 +156,11 @@ class ProcessingWorker(BaseWorker):
             self.progress.emit(0)
             return
 
-        target_bpm = self._resolve_target_bpm()
-        target_key = self._resolve_target_key()
-
         self.log.emit(f"Starting {self.action.replace('_', ' ')} for {total} song(s).")
         for index, song in enumerate(self.songs, start=1):
             self.check_canceled()
-            song_target_bpm = self._effective_target_bpm(song, target_bpm)
-            song_target_key = self._effective_target_key(song, target_key)
+            song_target_bpm = self._effective_target_bpm(song)
+            song_target_key = self._effective_target_key(song)
 
             try:
                 if self.action == "separate":
@@ -192,52 +189,36 @@ class ProcessingWorker(BaseWorker):
 
         self.log.emit(f"{self.action.replace('_', ' ').title()} finished.")
 
-    def _resolve_target_bpm(self) -> Optional[float]:
-        if self.action not in {"match_tempo", "process_all"}:
+    def _reference_song_for(self, song: SongRecord) -> Optional[SongRecord]:
+        if not song.reference_song_path:
             return None
+        return self.song_lookup.get(song.reference_song_path)
 
-        if self.options.match_to_reference:
-            if not self.reference_song:
-                raise AudioProcessingError("Reference song matching is enabled, but no reference song is selected.")
-            self._ensure_song_analysis(self.reference_song)
-            if not self.reference_song.bpm or self.reference_song.bpm <= 0:
-                raise AudioProcessingError("The selected reference song does not have a usable BPM.")
-            return float(self.reference_song.bpm)
-
-        return self.options.target_bpm
-
-    def _resolve_target_key(self) -> Optional[str]:
-        if self.action not in {"match_key", "process_all"}:
-            return None
-
-        if self.options.match_to_reference:
-            if not self.reference_song:
-                raise AudioProcessingError("Reference song matching is enabled, but no reference song is selected.")
-            self._ensure_song_analysis(self.reference_song)
-            if not self.reference_song.musical_key:
-                raise AudioProcessingError("The selected reference song does not have a usable key.")
-            return self.reference_song.musical_key
-
-        return self.options.target_key
-
-    def _effective_target_bpm(self, song: SongRecord, default_target_bpm: Optional[float]) -> Optional[float]:
-        if self.options.match_to_reference:
-            return default_target_bpm
-        if song.processing_override_enabled:
+    def _effective_target_bpm(self, song: SongRecord) -> Optional[float]:
+        if not song.use_reference_bpm:
             return song.processing_target_bpm
-        return default_target_bpm
 
-    def _effective_target_key(self, song: SongRecord, default_target_key: Optional[str]) -> Optional[str]:
-        if self.options.match_to_reference:
-            return default_target_key
-        if song.processing_override_enabled:
+        reference_song = self._reference_song_for(song)
+        if reference_song is None:
+            raise AudioProcessingError(f"{song.file_name}: Use Reference BPM is enabled, but no reference song is set.")
+        self._ensure_song_analysis(reference_song)
+        if not reference_song.bpm or reference_song.bpm <= 0:
+            raise AudioProcessingError(f"{reference_song.file_name} does not have a usable BPM.")
+        return float(reference_song.bpm)
+
+    def _effective_target_key(self, song: SongRecord) -> Optional[str]:
+        if not song.use_reference_key:
             return song.processing_target_key
-        return default_target_key
+
+        reference_song = self._reference_song_for(song)
+        if reference_song is None:
+            raise AudioProcessingError(f"{song.file_name}: Use Reference Key is enabled, but no reference song is set.")
+        self._ensure_song_analysis(reference_song)
+        if not reference_song.musical_key:
+            raise AudioProcessingError(f"{reference_song.file_name} does not have a usable key.")
+        return reference_song.musical_key
 
     def _effective_stem_settings(self, song: SongRecord) -> tuple[str, Optional[list[str]]]:
-        if not song.processing_override_enabled:
-            return self.options.stem_option, self.options.selected_stems
-
         selected_stems = list(song.processing_selected_stems) if song.processing_selected_stems else None
         if not selected_stems:
             return "All stems", None
@@ -269,8 +250,11 @@ class ProcessingWorker(BaseWorker):
             song.last_error = None
         self.song_updated.emit(song)
 
-    def _is_reference_song(self, song: SongRecord) -> bool:
-        return bool(self.reference_song and song.file_path == self.reference_song.file_path)
+    def _is_reference_song_for_bpm(self, song: SongRecord) -> bool:
+        return bool(song.use_reference_bpm and song.reference_song_path and song.reference_song_path == song.file_path)
+
+    def _is_reference_song_for_key(self, song: SongRecord) -> bool:
+        return bool(song.use_reference_key and song.reference_song_path and song.reference_song_path == song.file_path)
 
     def _separate(self, song: SongRecord) -> None:
         stem_option, selected_stems = self._effective_stem_settings(song)
@@ -291,7 +275,7 @@ class ProcessingWorker(BaseWorker):
         if target_bpm is None:
             raise AudioProcessingError("Tempo matching needs a target BPM.")
 
-        if self.options.match_to_reference and self._is_reference_song(song):
+        if self._is_reference_song_for_bpm(song):
             self.log.emit(f"Skipping tempo match for reference song {song.file_name}.")
             self.song_updated.emit(song)
             return
@@ -311,7 +295,7 @@ class ProcessingWorker(BaseWorker):
         if not target_key:
             raise AudioProcessingError("Key matching needs a target key.")
 
-        if self.options.match_to_reference and self._is_reference_song(song):
+        if self._is_reference_song_for_key(song):
             self.log.emit(f"Skipping key match for reference song {song.file_name}.")
             self.song_updated.emit(song)
             return
@@ -350,7 +334,7 @@ class ProcessingWorker(BaseWorker):
             song.stems_dir = str(result["stems_dir"])
             self.song_updated.emit(song)
 
-        if target_bpm is not None and not (self.options.match_to_reference and self._is_reference_song(song)):
+        if target_bpm is not None and not self._is_reference_song_for_bpm(song):
             tempo_result = match_song_tempo(song, target_bpm, log_callback=self.log.emit)
             song.processed_path = str(tempo_result["output_path"])
             song.duration = float(tempo_result["duration"])
@@ -359,7 +343,7 @@ class ProcessingWorker(BaseWorker):
         elif target_bpm is not None:
             self.log.emit(f"Skipping tempo match for reference song {song.file_name}.")
 
-        if target_key and not (self.options.match_to_reference and self._is_reference_song(song)):
+        if target_key and not self._is_reference_song_for_key(song):
             key_result = match_song_key(song, target_key, log_callback=self.log.emit)
             song.processed_path = str(key_result["output_path"])
             song.duration = float(key_result["duration"])
