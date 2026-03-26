@@ -67,7 +67,7 @@ The code path is implemented, but actual runtime success depends on the full Dem
 In the current environment:
 
 - the old Demucs CLI path has been replaced with an in-process separation path
-- `wav` and `flac` can now be separated without relying on `torchaudio.load`
+- `wav` and `flac` can now be separated through the in-process loader path used by the app
 - stem actions still require the Demucs and PyTorch runtime to be installed
 
 ### mp3 and m4a Support

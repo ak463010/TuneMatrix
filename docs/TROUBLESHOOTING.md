@@ -6,6 +6,8 @@ TuneMatrix disables some actions when required runtime support is missing.
 
 Check the bottom log panel at startup for dependency status and disabled-feature messages.
 
+The startup diagnostics show only the dependencies used by the current implementation. Older optional libraries that are not part of the active pipeline are intentionally omitted.
+
 Common examples:
 
 - `Separate Stems` disabled: Demucs or PyTorch runtime missing

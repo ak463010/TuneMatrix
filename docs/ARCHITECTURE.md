@@ -101,6 +101,8 @@ Benefits:
 
 `audio_processing.py` performs dependency inspection and reports issues per action.
 
+The startup dependency summary is intentionally limited to the libraries and executables used by the current runtime path, so it does not include unrelated optional packages.
+
 `main_window.py` uses that information to:
 
 - disable unsupported actions

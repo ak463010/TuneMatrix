@@ -23,6 +23,7 @@ What works now:
 - worker-threaded analyze, tempo match, key shift, and export flows
 - project save/load with song state and control settings persisted to JSON
 - dependency-aware UI gating for unsupported actions
+- startup diagnostics limited to the dependencies the current runtime path actually uses
 - local test suite and CI workflow
 
 What still depends on external tools:

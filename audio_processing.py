@@ -95,8 +95,6 @@ def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
         "soundfile": {"available": sf is not None, "detail": SOUND_FILE_IMPORT_ERROR},
         "pyrubberband": {"available": pyrb is not None, "detail": PYRUBBERBAND_IMPORT_ERROR},
         "torch": {"available": importlib.util.find_spec("torch") is not None, "detail": None},
-        "torchaudio": {"available": importlib.util.find_spec("torchaudio") is not None, "detail": None},
-        "torchcodec": {"available": importlib.util.find_spec("torchcodec") is not None, "detail": None},
         "rubberband": {"available": find_executable("rubberband") is not None, "detail": None},
         "ffmpeg": {"available": find_executable("ffmpeg") is not None, "detail": None},
         "demucs": {"available": importlib.util.find_spec("demucs") is not None, "detail": None},
@@ -113,8 +111,6 @@ def dependency_status_lines() -> list[str]:
         "rubberband",
         "ffmpeg",
         "torch",
-        "torchaudio",
-        "torchcodec",
         "demucs",
     ]
     return [format_dependency_status(name, report[name]["available"], report[name]["detail"]) for name in ordered_names]

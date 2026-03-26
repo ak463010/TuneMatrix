@@ -77,6 +77,17 @@ python main.py
 
 On first launch, check the bottom log panel. TuneMatrix logs the detected dependency state at startup.
 
+The startup log intentionally reports only the dependencies used by the current implementation:
+
+- `librosa`
+- `numpy`
+- `soundfile`
+- `pyrubberband`
+- `rubberband`
+- `ffmpeg`
+- `torch`
+- `demucs`
+
 ## Output Locations
 
 - Processed temporary files are written under the system temp directory in a `TuneMatrix` folder
