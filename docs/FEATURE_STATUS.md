@@ -45,9 +45,11 @@ This file describes the current implementation status against the requested feat
 - tempo matching
 - key pitch shifting
 - per-song target BPM, target key, and stem selection through the right sidebar
+- fixed workflow pipeline for `Match Key -> Match Tempo -> Separate Stems`
+- per-selection workflow visualization showing when a step will run, partially run, or be skipped
 - global output-folder selection
-- process-all worker pipeline
-- separate stems, match tempo, match key, and process-all actions auto-export processed files and stems to the selected output folder
+- ordered workflow worker pipeline for selected songs
+- separate stems, match tempo, match key, and workflow actions auto-export processed files and stems to the selected output folder
 - manual fallback export is still available from the `File` menu as `Export Cached Results`
 
 ### Reliability and Tooling

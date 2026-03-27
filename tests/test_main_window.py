@@ -91,6 +91,7 @@ class MainWindowTests(unittest.TestCase):
             window.song_table.empty_state_text,
             "No songs imported yet.\nClick Import Songs or drag and drop audio files here.",
         )
+        self.assertTrue(all(not checkbox.isChecked() for checkbox in window.stem_checkboxes.values()))
 
         self._import_files(window, ["header.wav"])
         self.assertFalse(window.song_table.horizontalHeader().isHidden())
@@ -180,6 +181,49 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(options.output_dir, "C:/temp/export")
         self.assertIsNone(options.target_bpm)
         self.assertIsNone(options.target_key)
+        self.assertEqual(options.workflow_steps, ["match_key", "match_tempo", "separate"])
+
+    def test_workflow_visualization_uses_fixed_order(self) -> None:
+        window = self._build_window()
+
+        self.assertEqual([workflow_step.step_id for workflow_step in window.workflow_steps], ["match_key", "match_tempo", "separate"])
+        self.assertEqual(list(window.workflow_step_rows), ["match_key", "match_tempo", "separate"])
+        self.assertEqual(window.workflow_step_rows["match_key"]["index"].text(), "1")
+        self.assertEqual(window.workflow_step_rows["match_tempo"]["index"].text(), "2")
+        self.assertEqual(window.workflow_step_rows["separate"]["index"].text(), "3")
+        self.assertGreaterEqual(window.workflow_step_rows["match_key"]["row"].minimumHeight(), 48)
+
+    def test_workflow_button_depends_on_enabled_steps(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["workflow_dependency.wav"])
+        window.song_table.selectRow(0)
+
+        with patch(
+            "main_window.action_base_requirement_message",
+            side_effect=lambda action: {"separate": "Stem dependency missing."}.get(action),
+        ):
+            window._refresh_action_availability()
+            self.assertFalse(window.process_all_button.isEnabled())
+
+            for workflow_step in window.workflow_steps:
+                if workflow_step.step_id == "separate":
+                    workflow_step.enabled = False
+            window._populate_workflow_list()
+            window._refresh_action_availability()
+
+        self.assertTrue(window.process_all_button.isEnabled())
+
+    def test_process_all_starts_without_order_confirmation(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["workflow.wav"])
+        window.song_table.selectRow(0)
+        window.songs[0].processing_target_bpm = 128.0
+        window.songs[0].processing_target_key = "A Minor"
+
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(window, "start_worker", Mock()) as start_worker:
+            window.start_processing_task("process_all")
+
+        start_worker.assert_called_once()
 
     def test_single_selection_loads_song_bound_values_into_editor(self) -> None:
         window = self._build_window()
@@ -229,6 +273,25 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.target_bpm_edit.placeholderText(), "Mixed")
         self.assertEqual(window.target_key_combo.currentText(), "Mixed")
 
+    def test_workflow_visualization_shows_skip_and_partial_states_for_selection(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.songs[0].processing_target_key = "A Minor"
+        window.songs[0].processing_target_bpm = 128.0
+        window.songs[0].processing_selected_stems = list(window.stem_checkboxes)
+        window.songs[1].processing_selected_stems = []
+        self._select_rows(window, [0, 1])
+
+        self.assertEqual(window.workflow_step_rows["match_key"]["summary"].text(), "Runs for 1/2 songs")
+        self.assertEqual(window.workflow_step_rows["match_tempo"]["summary"].text(), "Runs for 1/2 songs")
+        self.assertEqual(window.workflow_step_rows["separate"]["summary"].text(), "Runs for 1/2 songs")
+        self.assertEqual(window.workflow_step_rows["match_key"]["row"].property("workflowState"), "partial")
+
+        window.song_table.selectRow(1)
+        self.assertEqual(window.workflow_step_rows["match_key"]["summary"].text(), "Skip: no Target Key")
+        self.assertEqual(window.workflow_step_rows["separate"]["summary"].text(), "Skip: no stems selected")
+        self.assertEqual(window.workflow_step_rows["separate"]["row"].property("workflowState"), "skipped")
+
     def test_editing_single_song_updates_song_processing_fields(self) -> None:
         window = self._build_window()
         self._import_files(window, ["edit.wav"])
@@ -238,9 +301,8 @@ class MainWindowTests(unittest.TestCase):
         window.target_bpm_edit.editingFinished.emit()
         window.target_key_combo.setCurrentText("A Minor")
 
-        window.stem_checkboxes["Instrumental / No vocals"].setCheckState(Qt.CheckState.Unchecked)
-        window.stem_checkboxes["Drums"].setCheckState(Qt.CheckState.Unchecked)
-        window.stem_checkboxes["Other"].setCheckState(Qt.CheckState.Unchecked)
+        window.stem_checkboxes["Vocals"].setCheckState(Qt.CheckState.Checked)
+        window.stem_checkboxes["Bass"].setCheckState(Qt.CheckState.Checked)
 
         song = window.songs[0]
         self.assertEqual(song.processing_target_bpm, 128.0)
@@ -297,6 +359,19 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(window.songs[0].processing_target_bpm, 128.0)
         self.assertEqual(window.songs[1].processing_target_bpm, 128.0)
+
+    def test_mixed_multi_selection_can_toggle_stem_for_all_selected_songs(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.songs[0].processing_selected_stems = ["Vocals"]
+        window.songs[1].processing_selected_stems = ["Bass"]
+        self._select_rows(window, [0, 1])
+
+        with patch.object(window, "_show_override_confirmation_dialog", return_value=True):
+            window.stem_checkboxes["Vocals"].setCheckState(Qt.CheckState.Checked)
+
+        self.assertEqual(window.songs[0].processing_selected_stems, ["Vocals"])
+        self.assertEqual(window.songs[1].processing_selected_stems, ["Vocals", "Bass"])
 
     def test_output_folder_stays_global_when_selection_changes(self) -> None:
         window = self._build_window()
@@ -355,6 +430,27 @@ class MainWindowTests(unittest.TestCase):
         window.set_task_running(True)
 
         self.assertTrue(window.song_table.isEnabled())
+        window.current_worker = None
+
+    def test_multi_selection_editor_stays_editable_during_analysis(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        self._select_rows(window, [0, 1])
+
+        window.current_worker = AnalyzeWorker([window.songs[0], window.songs[1]])
+        window.set_task_running(True)
+
+        self.assertTrue(window.target_bpm_edit.isEnabled())
+        self.assertTrue(window.target_key_combo.isEnabled())
+        self.assertTrue(all(checkbox.isEnabled() for checkbox in window.stem_checkboxes.values()))
+
+        with patch.object(window, "_show_override_confirmation_dialog", return_value=True):
+            window.target_bpm_edit.setText("128")
+            window.target_bpm_edit.editingFinished.emit()
+
+        self.assertEqual(window.songs[0].processing_target_bpm, 128.0)
+        self.assertEqual(window.songs[1].processing_target_bpm, 128.0)
+
         window.current_worker = None
 
     def test_bpm_range_change_triggers_auto_reanalysis(self) -> None:
@@ -508,6 +604,20 @@ class MainWindowTests(unittest.TestCase):
         show_warning.assert_called_once()
         self.assertIn("Target Key", show_warning.call_args[0][0])
 
+    def test_workflow_allows_missing_target_key_and_skips_that_step(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["workflow_optional.wav"])
+        window.song_table.selectRow(0)
+        window.output_dir_edit.setText("C:/exports")
+
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "start_worker", Mock()
+        ) as start_worker, patch.object(window, "show_warning", Mock()) as show_warning:
+            window.start_processing_task("process_all")
+
+        show_warning.assert_not_called()
+        start_worker.assert_called_once()
+
     def test_separate_stems_requires_at_least_one_selected_stem(self) -> None:
         window = self._build_window()
         self._import_files(window, ["separate_validation.wav"])
@@ -525,6 +635,7 @@ class MainWindowTests(unittest.TestCase):
     def test_collect_project_state_serializes_song_bound_processing_and_global_output(self) -> None:
         window = self._build_window()
         self._import_files(window, ["demo.wav"])
+        window.workflow_steps[0].enabled = False
 
         song = window.songs[0]
         song.bpm_range_label = "90 - 120 BPM"
@@ -540,7 +651,18 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["songs"][0]["processing_target_bpm"], 126.0)
         self.assertEqual(state["songs"][0]["processing_target_key"], "A Minor")
         self.assertEqual(state["songs"][0]["processing_selected_stems"], ["Vocals", "Bass"])
-        self.assertEqual(state["ui"], {"output_dir": "C:/exports", "key_display_preference": "auto"})
+        self.assertEqual(
+            state["ui"],
+            {
+                "output_dir": "C:/exports",
+                "key_display_preference": "auto",
+                "workflow_steps": [
+                    {"step_id": "match_key", "enabled": False},
+                    {"step_id": "match_tempo", "enabled": True},
+                    {"step_id": "separate", "enabled": True},
+                ],
+            },
+        )
 
     def test_apply_project_state_restores_song_bound_processing_controls(self) -> None:
         window = self._build_window()
@@ -565,6 +687,11 @@ class MainWindowTests(unittest.TestCase):
                     "ui": {
                         "output_dir": "D:/processed",
                         "key_display_preference": "prefer_flats",
+                        "workflow_steps": [
+                            {"step_id": "separate", "enabled": True},
+                            {"step_id": "match_key", "enabled": False},
+                            {"step_id": "match_tempo", "enabled": True},
+                        ],
                     },
                 }
             )
@@ -577,6 +704,10 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.target_key_combo.currentData(), "A Minor")
         self.assertTrue(window.stem_checkboxes["Vocals"].isChecked())
         self.assertTrue(window.stem_checkboxes["Bass"].isChecked())
+        self.assertEqual(
+            [(step.step_id, step.enabled) for step in window.workflow_steps],
+            [("match_key", False), ("match_tempo", True), ("separate", True)],
+        )
 
     def test_apply_project_state_migrates_legacy_global_processing_settings_to_songs(self) -> None:
         window = self._build_window()
@@ -608,6 +739,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(migrated_song.processing_target_bpm, 128.0)
         self.assertEqual(migrated_song.processing_target_key, "C Minor")
         self.assertEqual(migrated_song.processing_selected_stems, ["Bass", "Drums"])
+        self.assertEqual([step.step_id for step in window.workflow_steps], ["match_key", "match_tempo", "separate"])
 
     def test_manual_bpm_range_prompt_updates_song_value(self) -> None:
         window = self._build_window()

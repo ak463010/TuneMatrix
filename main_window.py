@@ -44,6 +44,9 @@ from models import (
     SongStatus,
     STEM_OPTIONS,
     TABLE_HEADERS,
+    WORKFLOW_STEP_LABELS,
+    WorkflowStep,
+    normalize_workflow_steps,
 )
 from utils import (
     KEY_DISPLAY_AUTO,
@@ -62,7 +65,7 @@ from utils import (
 )
 from workers import AnalyzeWorker, ProcessingWorker
 
-PROJECT_STATE_VERSION = 2
+PROJECT_STATE_VERSION = 3
 PROJECT_FILE_SUFFIX = ".tunematrix.json"
 PROJECT_FILE_FILTER = "TuneMatrix Project (*.tunematrix.json);;JSON Files (*.json)"
 ICON_DIR = Path(__file__).resolve().parent / "assets" / "icons"
@@ -265,7 +268,9 @@ class MainWindow(QMainWindow):
         self.task_cancel_requested = False
         self.action_dependency_messages: dict[str, str] = {}
         self._sidebar_binding_in_progress = False
+        self._workflow_binding_in_progress = False
         self.key_display_preference = KEY_DISPLAY_AUTO
+        self.workflow_steps: list[WorkflowStep] = normalize_workflow_steps(None)
 
         self.setWindowTitle("TuneMatrix")
         self.resize(1400, 900)
@@ -305,7 +310,7 @@ class MainWindow(QMainWindow):
         self.match_key_action = QAction("Match Key", self)
         self.match_key_action.triggered.connect(lambda: self.start_processing_task("match_key"))
 
-        self.process_all_action = QAction("Process All", self)
+        self.process_all_action = QAction("Run Workflow", self)
         self.process_all_action.triggered.connect(lambda: self.start_processing_task("process_all"))
 
         self.export_action = QAction("Export Cached Results", self)
@@ -521,8 +526,8 @@ class MainWindow(QMainWindow):
         panel.setMaximumWidth(320)
 
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
 
         title = QLabel("Processing Options")
         title.setObjectName("sectionTitle")
@@ -592,17 +597,30 @@ class MainWindow(QMainWindow):
         form_layout.addRow("Target Key", self.target_key_combo)
         layout.addLayout(form_layout)
 
+        workflow_label = QLabel("Workflow")
+        workflow_label.setObjectName("fieldLabel")
+        layout.addWidget(workflow_label)
+
+        self.workflow_panel = QFrame()
+        self.workflow_panel.setObjectName("workflowFlowCard")
+        self.workflow_panel_layout = QVBoxLayout(self.workflow_panel)
+        self.workflow_panel_layout.setContentsMargins(5, 5, 5, 5)
+        self.workflow_panel_layout.setSpacing(4)
+        self.workflow_step_rows: dict[str, dict[str, object]] = {}
+        layout.addWidget(self.workflow_panel)
+
+        workflow_hint_label = QLabel("Fixed order: Match Key -> Match Tempo -> Separate Stems.")
+        workflow_hint_label.setObjectName("hintLabel")
+        workflow_hint_label.setWordWrap(True)
+        layout.addWidget(workflow_hint_label)
+        self._populate_workflow_list()
+
         layout.addStretch(1)
 
         output_label = QLabel("Output Folder")
         output_label.setObjectName("fieldLabel")
         layout.addWidget(output_label)
         layout.addWidget(output_row)
-
-        hint_label = QLabel("Drag and drop mp3, wav, flac, or m4a files onto the song table.")
-        hint_label.setWordWrap(True)
-        hint_label.setObjectName("hintLabel")
-        layout.addWidget(hint_label)
 
         self._load_processing_editor_from_selection()
         return panel
@@ -618,7 +636,7 @@ class MainWindow(QMainWindow):
         self.separate_button = QPushButton("Separate Stems")
         self.match_tempo_button = QPushButton("Match Tempo")
         self.match_key_button = QPushButton("Match Key")
-        self.process_all_button = QPushButton("Process All")
+        self.process_all_button = QPushButton("Run Workflow")
         self.cancel_button = QPushButton("Cancel Task")
         self.cancel_button.setEnabled(False)
 
@@ -634,7 +652,7 @@ class MainWindow(QMainWindow):
             self.separate_button: 136,
             self.match_tempo_button: 126,
             self.match_key_button: 114,
-            self.process_all_button: 116,
+            self.process_all_button: 126,
             self.cancel_button: 112,
         }
 
@@ -665,6 +683,162 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self.cancel_current_task)
 
         return panel
+
+    def _workflow_step_icon(self, step_id: str) -> QIcon:
+        icon_name = {
+            "match_key": "key",
+            "match_tempo": "tempo",
+            "separate": "separate",
+        }.get(step_id, "process")
+        return self._icon(icon_name)
+
+    def _populate_workflow_list(self) -> None:
+        if not hasattr(self, "workflow_panel_layout"):
+            return
+
+        self._workflow_binding_in_progress = True
+        try:
+            while self.workflow_panel_layout.count():
+                child = self.workflow_panel_layout.takeAt(0)
+                widget = child.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            self.workflow_step_rows.clear()
+
+            for workflow_step in self.workflow_steps:
+                row_widget = QFrame()
+                row_widget.setObjectName("workflowItem")
+                row_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+                row_widget.setMinimumHeight(48)
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(8, 5, 8, 5)
+                row_layout.setSpacing(7)
+
+                index_label = QLabel(str(self.workflow_steps.index(workflow_step) + 1))
+                index_label.setObjectName("workflowStepIndex")
+                index_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                index_label.setFixedSize(18, 18)
+                row_layout.addWidget(index_label, 0, Qt.AlignmentFlag.AlignTop)
+
+                enabled_checkbox = QCheckBox()
+                enabled_checkbox.setChecked(workflow_step.enabled)
+                enabled_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
+                enabled_checkbox.stateChanged.connect(
+                    lambda state, step_id=workflow_step.step_id: self._set_workflow_step_enabled(
+                        step_id, state == Qt.CheckState.Checked.value
+                    )
+                )
+                row_layout.addWidget(enabled_checkbox, 0, Qt.AlignmentFlag.AlignTop)
+
+                icon_label = QLabel()
+                icon_label.setPixmap(self._workflow_step_icon(workflow_step.step_id).pixmap(14, 14))
+                row_layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
+
+                text_column = QVBoxLayout()
+                text_column.setContentsMargins(0, 0, 0, 0)
+                text_column.setSpacing(1)
+
+                title_label = QLabel(WORKFLOW_STEP_LABELS.get(workflow_step.step_id, workflow_step.step_id))
+                title_label.setObjectName("workflowStepLabel")
+                text_column.addWidget(title_label)
+
+                summary_label = QLabel("")
+                summary_label.setObjectName("workflowStepSummary")
+                summary_label.setWordWrap(True)
+                summary_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+                text_column.addWidget(summary_label)
+
+                row_layout.addLayout(text_column, 1)
+
+                self.workflow_step_rows[workflow_step.step_id] = {
+                    "row": row_widget,
+                    "index": index_label,
+                    "checkbox": enabled_checkbox,
+                    "title": title_label,
+                    "summary": summary_label,
+                }
+                self.workflow_panel_layout.addWidget(row_widget)
+            self.workflow_panel_layout.addStretch(1)
+        finally:
+            self._workflow_binding_in_progress = False
+        self._refresh_workflow_visualization()
+
+    def _set_workflow_step_enabled(self, step_id: str, enabled: bool) -> None:
+        if self._workflow_binding_in_progress:
+            return
+
+        for workflow_step in self.workflow_steps:
+            if workflow_step.step_id == step_id:
+                workflow_step.enabled = enabled
+                break
+        self._refresh_workflow_visualization()
+        self._refresh_action_availability()
+
+    def _enabled_workflow_step_ids(self) -> list[str]:
+        return [workflow_step.step_id for workflow_step in self.workflow_steps if workflow_step.enabled]
+
+    def _song_can_run_workflow_step(self, song: SongRecord, step_id: str) -> tuple[bool, str]:
+        if step_id == "match_key":
+            if song.processing_target_key:
+                return True, f"Will use {format_key(song.processing_target_key, self.key_display_preference)}"
+            return False, "Skip: no Target Key"
+        if step_id == "match_tempo":
+            if song.processing_target_bpm is not None:
+                return True, f"Will use {song.processing_target_bpm:g} BPM"
+            return False, "Skip: no Target BPM"
+        if step_id == "separate":
+            selected_stems = song.processing_selected_stems
+            if selected_stems == []:
+                return False, "Skip: no stems selected"
+            if selected_stems is None:
+                return True, "Will split all stems"
+            return True, f"Will split {', '.join(selected_stems)}"
+        return False, "Skip"
+
+    def _workflow_step_visual_summary(self, step_id: str) -> tuple[str, str]:
+        workflow_step = next((step for step in self.workflow_steps if step.step_id == step_id), None)
+        if workflow_step is None:
+            return "disabled", "Unavailable"
+        if not workflow_step.enabled:
+            return "disabled", "Disabled"
+
+        selected_songs = self.selected_songs()
+        if not selected_songs:
+            return "idle", "Select songs to preview"
+
+        decisions = [self._song_can_run_workflow_step(song, step_id) for song in selected_songs]
+        run_count = sum(1 for can_run, _message in decisions if can_run)
+
+        if len(selected_songs) == 1:
+            can_run, message = decisions[0]
+            return ("ready" if can_run else "skipped"), message
+
+        total = len(selected_songs)
+        if run_count == total:
+            return "ready", f"Runs for all {total} songs"
+        if run_count == 0:
+            return "skipped", f"Skipped for all {total} songs"
+        return "partial", f"Runs for {run_count}/{total} songs"
+
+    def _refresh_workflow_visualization(self) -> None:
+        if not hasattr(self, "workflow_step_rows"):
+            return
+
+        for index, workflow_step in enumerate(self.workflow_steps, start=1):
+            row_parts = self.workflow_step_rows.get(workflow_step.step_id)
+            if not row_parts:
+                continue
+
+            state, summary = self._workflow_step_visual_summary(workflow_step.step_id)
+            row_widget = row_parts["row"]
+            summary_label = row_parts["summary"]
+            index_label = row_parts["index"]
+
+            row_widget.setProperty("workflowState", state)
+            row_widget.style().unpolish(row_widget)
+            row_widget.style().polish(row_widget)
+            summary_label.setText(summary)
+            index_label.setText(str(index))
 
     def _build_log_panel(self) -> QWidget:
         panel = QFrame()
@@ -937,6 +1111,64 @@ class MainWindow(QMainWindow):
             #workspaceSplitter::handle {
                 background-color: #0f1319;
             }
+            #workflowFlowCard {
+                background-color: #171d25;
+                border: 1px solid #121820;
+                border-radius: 6px;
+            }
+            #workflowItem {
+                background-color: #202833;
+                border: 1px solid #121820;
+                border-radius: 5px;
+            }
+            #workflowItem[workflowState="ready"] {
+                background-color: #1e2b28;
+                border-color: #244f40;
+            }
+            #workflowItem[workflowState="partial"] {
+                background-color: #2f291c;
+                border-color: #6c5525;
+            }
+            #workflowItem[workflowState="skipped"] {
+                background-color: #25232b;
+                border-color: #40384b;
+            }
+            #workflowItem[workflowState="disabled"] {
+                background-color: #1a2028;
+                border-color: #11171e;
+            }
+            #workflowItem[workflowState="idle"] {
+                background-color: #202833;
+                border-color: #121820;
+            }
+            #workflowStepIndex {
+                background-color: #2d3744;
+                border: 1px solid #111821;
+                border-radius: 9px;
+                color: #f1f5fb;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            #workflowStepLabel {
+                color: #eef3fb;
+                font-weight: 600;
+            }
+            #workflowStepSummary {
+                color: #90a0b6;
+                font-size: 11px;
+            }
+            #workflowItem[workflowState="ready"] #workflowStepSummary {
+                color: #8fddb8;
+            }
+            #workflowItem[workflowState="partial"] #workflowStepSummary {
+                color: #f0c673;
+            }
+            #workflowItem[workflowState="skipped"] #workflowStepSummary {
+                color: #b7a4d8;
+            }
+            #workflowItem[workflowState="disabled"] #workflowStepSummary {
+                color: #6f7b8d;
+            }
             #logConsole {
                 font-family: "Consolas";
                 font-size: 11px;
@@ -965,10 +1197,24 @@ class MainWindow(QMainWindow):
     def _collect_base_action_messages(self) -> dict[str, str]:
         messages: dict[str, str] = {}
         for action_name in self._action_controls():
+            if action_name == "process_all":
+                continue
             message = action_base_requirement_message(action_name)
             if message:
                 messages[action_name] = message
         return messages
+
+    def _workflow_dependency_message(self) -> str:
+        enabled_steps = self._enabled_workflow_step_ids()
+        if not enabled_steps:
+            return "Enable at least one workflow step."
+
+        messages: list[str] = []
+        for step_id in enabled_steps:
+            message = action_base_requirement_message(step_id)
+            if message and message not in messages:
+                messages.append(message)
+        return "\n".join(messages)
 
     def _apply_control_hint(self, control: object, message: str) -> None:
         if hasattr(control, "setToolTip"):
@@ -1000,7 +1246,10 @@ class MainWindow(QMainWindow):
             self._apply_control_hint(control, "" if has_selection else selection_required_message)
 
         for action_name, controls in self._action_controls().items():
-            message = self.action_dependency_messages.get(action_name, "")
+            if action_name == "process_all":
+                message = self._workflow_dependency_message()
+            else:
+                message = self.action_dependency_messages.get(action_name, "")
             enabled = has_selection and not message
             for control in controls:
                 control.setEnabled(enabled)
@@ -1073,6 +1322,7 @@ class MainWindow(QMainWindow):
                     self._refresh_key_option_combo_labels(key_hint_combo, "Auto")
                 if row < len(self.songs):
                     self._populate_song_row(row, self.songs[row])
+        self._refresh_workflow_visualization()
 
     def _set_combo_text(self, combo: QComboBox, value: object) -> None:
         text_value = str(value or "").strip()
@@ -1197,22 +1447,22 @@ class MainWindow(QMainWindow):
         self._schedule_auto_analysis([song], "hint change")
 
     def _display_stem_list(self, stems: Optional[list[str]]) -> str:
-        if stems is None or len(stems) == len(self.stem_checkboxes):
-            return "All stems"
-        if len(stems) == 0:
+        if not stems:
             return "None"
+        if len(stems) == len(self.stem_checkboxes):
+            return "All stems"
         return ", ".join(stems)
 
     def _song_selected_stem_values(self, song: SongRecord) -> list[str]:
         if song.processing_selected_stems is None:
-            return list(self.stem_checkboxes)
+            return []
         return list(song.processing_selected_stems)
 
     def _song_has_processing_settings(self, song: SongRecord) -> bool:
         return bool(
             song.processing_target_bpm is not None
             or song.processing_target_key
-            or song.processing_selected_stems is not None
+            or bool(song.processing_selected_stems)
         )
 
     def _sync_song_processing_flag(self, song: SongRecord) -> None:
@@ -1258,13 +1508,16 @@ class MainWindow(QMainWindow):
         checkbox.setCheckState(state)
         checkbox.blockSignals(False)
 
+    def _can_edit_song_bound_controls(self) -> bool:
+        return self.current_worker is None or isinstance(self.current_worker, AnalyzeWorker)
+
     def _set_song_bound_controls_enabled(self, enabled: bool) -> None:
         for control in [
             self.target_bpm_edit,
             self.target_key_combo,
             *self.stem_checkboxes.values(),
         ]:
-            control.setEnabled(enabled and self.current_worker is None)
+            control.setEnabled(enabled and self._can_edit_song_bound_controls())
 
     def _load_processing_editor_from_selection(self) -> None:
         if not hasattr(self, "editor_scope_label"):
@@ -1331,6 +1584,7 @@ class MainWindow(QMainWindow):
                     self._set_checkbox_state(checkbox, state)
         finally:
             self._sidebar_binding_in_progress = False
+        self._refresh_workflow_visualization()
 
     def _parse_target_bpm_value(self) -> Optional[float]:
         bpm_text = self.target_bpm_edit.text().strip()
@@ -1342,7 +1596,7 @@ class MainWindow(QMainWindow):
             return None
 
     def _apply_processing_field_to_selected_songs(self, updater) -> list[SongRecord]:
-        if self._sidebar_binding_in_progress or self.current_worker is not None:
+        if self._sidebar_binding_in_progress or not self._can_edit_song_bound_controls():
             return []
 
         songs = self.selected_songs()
@@ -1383,6 +1637,16 @@ class MainWindow(QMainWindow):
 
         return self._show_override_confirmation_dialog(field_label, len(songs))
 
+    def _set_song_stem_enabled(self, song: SongRecord, stem_name: str, enabled: bool) -> None:
+        selected_stems = set(self._song_selected_stem_values(song))
+        if enabled:
+            selected_stems.add(stem_name)
+        else:
+            selected_stems.discard(stem_name)
+        song.processing_selected_stems = [
+            candidate_name for candidate_name in self.stem_checkboxes if candidate_name in selected_stems
+        ]
+
     def _show_override_confirmation_dialog(self, field_label: str, song_count: int) -> bool:
         message_box = QMessageBox(self)
         message_box.setWindowTitle("TuneMatrix")
@@ -1400,7 +1664,7 @@ class MainWindow(QMainWindow):
         return message_box.clickedButton() == override_button
 
     def _apply_target_bpm_to_selection(self) -> None:
-        if self._sidebar_binding_in_progress or self.current_worker is not None:
+        if self._sidebar_binding_in_progress or not self._can_edit_song_bound_controls():
             return
 
         bpm_text = self.target_bpm_edit.text().strip()
@@ -1423,7 +1687,7 @@ class MainWindow(QMainWindow):
             self._load_processing_editor_from_selection()
 
     def _apply_target_key_to_selection(self) -> None:
-        if self._sidebar_binding_in_progress or self.current_worker is not None:
+        if self._sidebar_binding_in_progress or not self._can_edit_song_bound_controls():
             return
 
         target_key = self.target_key_combo.currentData()
@@ -1442,10 +1706,40 @@ class MainWindow(QMainWindow):
         if self._sidebar_binding_in_progress:
             return
 
+        triggered_checkbox = self.sender()
+        triggered_stem_name = next(
+            (
+                stem_name
+                for stem_name, checkbox in self.stem_checkboxes.items()
+                if checkbox is triggered_checkbox
+            ),
+            None,
+        )
         selected_states = {
             stem_name: checkbox.checkState()
             for stem_name, checkbox in self.stem_checkboxes.items()
         }
+
+        if (
+            triggered_stem_name is not None
+            and selected_states[triggered_stem_name] != Qt.CheckState.PartiallyChecked
+            and self._selection_has_mixed_values(lambda song: self._song_selected_stem_values(song))
+        ):
+            if not self._confirm_override_for_mixed_selection(
+                "Stem Selection",
+                lambda song: self._song_selected_stem_values(song),
+            ):
+                self._load_processing_editor_from_selection()
+                return
+
+            enabled = selected_states[triggered_stem_name] == Qt.CheckState.Checked
+            songs = self._apply_processing_field_to_selected_songs(
+                lambda song: self._set_song_stem_enabled(song, triggered_stem_name, enabled)
+            )
+            if songs:
+                self._load_processing_editor_from_selection()
+            return
+
         if any(state == Qt.CheckState.PartiallyChecked for state in selected_states.values()):
             return
 
@@ -1460,7 +1754,11 @@ class MainWindow(QMainWindow):
             return
 
         songs = self._apply_processing_field_to_selected_songs(
-            lambda song: setattr(song, "processing_selected_stems", list(normalized_stems) if normalized_stems is not None else None)
+            lambda song: setattr(
+                song,
+                "processing_selected_stems",
+                list(normalized_stems) if normalized_stems is not None else list(self.stem_checkboxes),
+            )
         )
         if songs:
             self._load_processing_editor_from_selection()
@@ -1472,6 +1770,7 @@ class MainWindow(QMainWindow):
             "ui": {
                 "output_dir": self.output_dir_edit.text().strip(),
                 "key_display_preference": self.key_display_preference,
+                "workflow_steps": [workflow_step.to_dict() for workflow_step in self.workflow_steps],
             },
         }
 
@@ -1508,6 +1807,8 @@ class MainWindow(QMainWindow):
             restored_songs.append(song)
 
         self.songs = restored_songs
+        self.workflow_steps = normalize_workflow_steps(ui_state.get("workflow_steps"))
+        self._populate_workflow_list()
         legacy_target_bpm_text = str(ui_state.get("target_bpm_text") or "").strip()
         legacy_target_bpm: Optional[float]
         try:
@@ -1533,7 +1834,7 @@ class MainWindow(QMainWindow):
                 song.processing_target_bpm = legacy_target_bpm
             if not song.processing_target_key and legacy_target_key:
                 song.processing_target_key = str(legacy_target_key)
-            if song.processing_selected_stems is None and legacy_selected_stems is not None:
+            if not song.processing_selected_stems and legacy_selected_stems is not None:
                 song.processing_selected_stems = list(legacy_selected_stems)
             self._sync_song_processing_flag(song)
         self.song_table.setRowCount(0)
@@ -1721,10 +2022,19 @@ class MainWindow(QMainWindow):
                 return "Each selected song needs a Target Key."
 
         if action == "separate":
-            empty_stem_songs = [song.file_name for song in songs if song.processing_selected_stems == []]
+            empty_stem_songs = [song.file_name for song in songs if not song.processing_selected_stems]
             if empty_stem_songs:
                 return "Select at least one stem before running Separate Stems."
 
+        return None
+
+    def _validate_workflow_processing(self, step_ids: list[str], songs: list[SongRecord]) -> Optional[str]:
+        if not step_ids:
+            return "Enable at least one workflow step before running the workflow."
+
+        for song in songs:
+            if song.processing_target_bpm is not None and song.processing_target_bpm <= 0:
+                return f"{song.file_name}: Target BPM must be greater than zero."
         return None
 
     def _auto_analysis_candidates(self, songs: list[SongRecord]) -> list[SongRecord]:
@@ -1842,19 +2152,30 @@ class MainWindow(QMainWindow):
             self.show_warning("Select at least one song.")
             return
 
-        runtime_issues = list(dict.fromkeys(action_runtime_issues(action, [song.file_path for song in songs])))
+        options = self.build_processing_options()
+        if action == "process_all":
+            enabled_workflow_steps = options.workflow_steps or []
+            runtime_issues = list(
+                dict.fromkeys(
+                    issue
+                    for step_id in enabled_workflow_steps
+                    for issue in action_runtime_issues(step_id, [song.file_path for song in songs])
+                )
+            )
+            validation_error = self._validate_workflow_processing(enabled_workflow_steps, songs)
+        else:
+            runtime_issues = list(dict.fromkeys(action_runtime_issues(action, [song.file_path for song in songs])))
+            validation_error = self._validate_selected_song_processing(action, songs)
+
         if runtime_issues:
             message = "\n".join(runtime_issues)
             self.append_log(message)
             self.show_warning(message)
             return
 
-        validation_error = self._validate_selected_song_processing(action, songs)
         if validation_error:
             self.show_warning(validation_error)
             return
-
-        options = self.build_processing_options()
 
         if action in {"separate", "match_tempo", "match_key", "process_all"} and not options.output_dir:
             self.show_warning("Choose an output folder before processing. TuneMatrix exports processed results automatically.")
@@ -1865,12 +2186,14 @@ class MainWindow(QMainWindow):
             return
 
         worker = ProcessingWorker(songs, options, action)
-        self.start_worker(worker, action.replace("_", " ").title())
+        task_label = "Run Workflow" if action == "process_all" else action.replace("_", " ").title()
+        self.start_worker(worker, task_label)
 
     def build_processing_options(self) -> ProcessingOptions:
         return ProcessingOptions(
             output_dir=self.output_dir_edit.text().strip() or None,
             key_display_preference=self.key_display_preference,
+            workflow_steps=self._enabled_workflow_step_ids(),
         )
 
     def start_worker(self, worker, task_label: str) -> None:
@@ -1939,6 +2262,7 @@ class MainWindow(QMainWindow):
             self.save_project_action,
             self.remove_button,
             self.clear_button,
+            self.workflow_panel,
             self.output_dir_edit,
             self.output_browse_button,
             self.remove_action,

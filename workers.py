@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -16,7 +17,8 @@ from audio_processing import (
     match_song_tempo,
     separate_song_stems,
 )
-from models import ProcessingOptions, SongRecord, SongStatus, bpm_range_from_label
+from models import ProcessingOptions, SongRecord, SongStatus, WORKFLOW_STEP_LABELS, bpm_range_from_label
+from utils import ensure_directory, make_song_cache_dir
 
 
 class BaseWorker(QObject):
@@ -91,6 +93,7 @@ class AnalyzeWorker(BaseWorker):
         successful = 0
         for index, song in enumerate(self.songs, start=1):
             self.check_canceled()
+            previous_status = song.status
             self.update_song_status(song, SongStatus.ANALYZING.value)
 
             try:
@@ -108,7 +111,10 @@ class AnalyzeWorker(BaseWorker):
                 )
                 self.apply_analysis_metadata(song, result)
                 song.last_error = None
-                song.status = SongStatus.ANALYZED.value
+                if previous_status == SongStatus.EXPORTED.value:
+                    song.status = SongStatus.EXPORTED.value
+                else:
+                    song.status = SongStatus.ANALYZED.value
                 successful += 1
                 self.log.emit(
                     f"Analyzed {song.file_name}: {song.duration:.1f}s, {song.bpm:.1f} BPM, {song.musical_key or 'unknown key'}."
@@ -136,6 +142,11 @@ class ProcessingWorker(BaseWorker):
         self.options = options
         self.action = action
 
+    def _action_label(self) -> str:
+        if self.action == "process_all":
+            return "Workflow"
+        return self.action.replace("_", " ").title()
+
     @Slot()
     def run(self) -> None:
         try:
@@ -144,7 +155,7 @@ class ProcessingWorker(BaseWorker):
             self.log.emit(str(exc))
         except Exception as exc:
             self.error.emit(str(exc))
-            self.log.emit(f"{self.action.replace('_', ' ').title()} task failed: {exc}")
+            self.log.emit(f"{self._action_label()} task failed: {exc}")
         finally:
             self.finished.emit()
 
@@ -155,7 +166,7 @@ class ProcessingWorker(BaseWorker):
             self.progress.emit(0)
             return
 
-        self.log.emit(f"Starting {self.action.replace('_', ' ')} for {total} song(s).")
+        self.log.emit(f"Starting {self._action_label().lower()} for {total} song(s).")
         for index, song in enumerate(self.songs, start=1):
             self.check_canceled()
             song_target_bpm = self._effective_target_bpm(song)
@@ -172,7 +183,7 @@ class ProcessingWorker(BaseWorker):
                     self._match_key(song, song_target_key)
                     self._auto_export(song)
                 elif self.action == "process_all":
-                    self._process_all(song, song_target_bpm, song_target_key)
+                    self._run_workflow(song, song_target_bpm, song_target_key)
                     self._auto_export(song)
                 elif self.action == "export":
                     self._export(song)
@@ -186,11 +197,11 @@ class ProcessingWorker(BaseWorker):
                 song.status = SongStatus.ERROR.value
                 song.last_error = str(exc)
                 self.song_updated.emit(song)
-                self.log.emit(f"{self.action.replace('_', ' ').title()} failed for {song.file_name}: {exc}")
+                self.log.emit(f"{self._action_label()} failed for {song.file_name}: {exc}")
 
             self.progress.emit(int(index / total * 100))
 
-        self.log.emit(f"{self.action.replace('_', ' ').title()} finished.")
+        self.log.emit(f"{self._action_label()} finished.")
 
     def _effective_target_bpm(self, song: SongRecord) -> Optional[float]:
         return song.processing_target_bpm
@@ -199,14 +210,15 @@ class ProcessingWorker(BaseWorker):
         return song.processing_target_key
 
     def _effective_stem_settings(self, song: SongRecord) -> tuple[Optional[str], Optional[list[str]]]:
-        if song.processing_selected_stems is None:
-            return "All stems", None
-        selected_stems = list(song.processing_selected_stems)
-        if len(selected_stems) == 0:
+        if not song.processing_selected_stems:
             return None, []
+        selected_stems = list(song.processing_selected_stems)
         if len(selected_stems) == 1:
             return selected_stems[0], selected_stems
         return "All stems", selected_stems
+
+    def _workflow_steps(self) -> list[str]:
+        return list(self.options.workflow_steps or [])
 
     def _ensure_song_analysis(self, song: SongRecord) -> None:
         if song.duration is not None and song.bpm is not None and song.musical_key:
@@ -253,9 +265,10 @@ class ProcessingWorker(BaseWorker):
         if target_bpm is None:
             raise AudioProcessingError("Tempo matching needs a target BPM.")
 
+        self.check_canceled()
         self.update_song_status(song, SongStatus.MATCHING_TEMPO.value)
         self._ensure_song_analysis(song)
-        result = match_song_tempo(song, target_bpm, log_callback=self.log.emit)
+        result = match_song_tempo(song, target_bpm, log_callback=self.log.emit, cancel_callback=self.is_canceled)
         song.processed_path = str(result["output_path"])
         song.duration = float(result["duration"])
         song.bpm = float(result["bpm"])
@@ -268,9 +281,10 @@ class ProcessingWorker(BaseWorker):
         if not target_key:
             raise AudioProcessingError("Key matching needs a target key.")
 
+        self.check_canceled()
         self.update_song_status(song, SongStatus.MATCHING_KEY.value)
         self._ensure_song_analysis(song)
-        result = match_song_key(song, target_key, log_callback=self.log.emit)
+        result = match_song_key(song, target_key, log_callback=self.log.emit, cancel_callback=self.is_canceled)
         song.processed_path = str(result["output_path"])
         song.duration = float(result["duration"])
         song.musical_key = str(result["key"])
@@ -286,44 +300,219 @@ class ProcessingWorker(BaseWorker):
                 f"Pitch shifted {song.file_name} to {song.musical_key}; the requested mode could not be matched exactly."
             )
 
-    def _process_all(self, song: SongRecord, target_bpm: Optional[float], target_key: Optional[str]) -> None:
-        self.update_song_status(song, SongStatus.PROCESSING.value)
-        self._ensure_song_analysis(song)
-        stem_option, selected_stems = self._effective_stem_settings(song)
+    def _make_temporary_song(
+        self,
+        source_path: str,
+        display_name: str,
+        bpm: Optional[float],
+        musical_key: Optional[str],
+    ) -> SongRecord:
+        temp_song = SongRecord.from_path(source_path)
+        temp_song.file_name = display_name
+        temp_song.bpm = bpm
+        temp_song.musical_key = musical_key
+        return temp_song
 
-        if stem_option:
-            result = separate_song_stems(
-                song,
-                stem_option,
-                selected_stems=selected_stems,
+    def _stem_paths_from_directory(self, stems_dir: str) -> dict[str, str]:
+        stem_paths: dict[str, str] = {}
+        for stem_path in sorted(Path(stems_dir).glob("*.wav")):
+            stem_paths[stem_path.stem] = str(stem_path)
+        return stem_paths
+
+    def _processed_stem_output_dir(self, song: SongRecord, step_id: str) -> Path:
+        workflow_root = Path(make_song_cache_dir(song.file_path, song.file_name, "workflow_stems"))
+        step_root = workflow_root / step_id
+        ensure_directory(step_root)
+        existing_indices = [
+            int(path.name.split("_")[-1])
+            for path in step_root.iterdir()
+            if path.is_dir() and path.name.startswith("run_") and path.name.split("_")[-1].isdigit()
+        ]
+        next_index = max(existing_indices, default=0) + 1
+        run_dir = step_root / f"run_{next_index:02d}"
+        ensure_directory(run_dir)
+        return run_dir
+
+    def _process_stems_for_tempo(
+        self,
+        song: SongRecord,
+        current_stem_paths: dict[str, str],
+        current_bpm: Optional[float],
+        current_key: Optional[str],
+        target_bpm: float,
+    ) -> tuple[dict[str, str], float]:
+        self.update_song_status(song, SongStatus.MATCHING_TEMPO.value)
+        output_dir = self._processed_stem_output_dir(song, "match_tempo")
+        processed_stem_paths: dict[str, str] = {}
+        duration: Optional[float] = None
+
+        for stem_name, stem_path in current_stem_paths.items():
+            self.check_canceled()
+            temp_song = self._make_temporary_song(stem_path, Path(stem_path).name, current_bpm, current_key)
+            result = match_song_tempo(
+                temp_song,
+                target_bpm,
                 log_callback=self.log.emit,
                 cancel_callback=self.is_canceled,
             )
-            song.stems_dir = str(result["stems_dir"])
-            self.song_updated.emit(song)
-        elif selected_stems == []:
-            self.log.emit(f"Skipping stem separation for {song.file_name} because no stems are selected.")
+            destination = output_dir / Path(stem_path).name
+            shutil.copy2(result["output_path"], destination)
+            processed_stem_paths[stem_name] = str(destination)
+            if duration is None:
+                duration = float(result["duration"])
 
-        if target_bpm is not None:
-            tempo_result = match_song_tempo(song, target_bpm, log_callback=self.log.emit)
-            song.processed_path = str(tempo_result["output_path"])
-            song.duration = float(tempo_result["duration"])
-            song.bpm = float(tempo_result["bpm"])
-            self.song_updated.emit(song)
+        if duration is None:
+            duration = song.duration or 0.0
+        return processed_stem_paths, duration
 
-        if target_key:
-            key_result = match_song_key(song, target_key, log_callback=self.log.emit)
-            song.processed_path = str(key_result["output_path"])
-            song.duration = float(key_result["duration"])
-            song.musical_key = str(key_result["key"])
-            song.relative_key = str(key_result.get("relative_key") or "") or None
-            song.compatible_keys = list(key_result.get("compatible_keys") or [])
-            self.song_updated.emit(song)
+    def _process_stems_for_key(
+        self,
+        song: SongRecord,
+        current_stem_paths: dict[str, str],
+        current_bpm: Optional[float],
+        current_key: Optional[str],
+        target_key: str,
+    ) -> tuple[dict[str, str], float, str, Optional[str], list[str]]:
+        self.update_song_status(song, SongStatus.MATCHING_KEY.value)
+        output_dir = self._processed_stem_output_dir(song, "match_key")
+        processed_stem_paths: dict[str, str] = {}
+        duration: Optional[float] = None
+        resolved_key = current_key or target_key
+        relative_key: Optional[str] = None
+        compatible_keys: list[str] = []
+
+        for stem_name, stem_path in current_stem_paths.items():
+            self.check_canceled()
+            temp_song = self._make_temporary_song(stem_path, Path(stem_path).name, current_bpm, current_key)
+            result = match_song_key(
+                temp_song,
+                target_key,
+                log_callback=self.log.emit,
+                cancel_callback=self.is_canceled,
+            )
+            destination = output_dir / Path(stem_path).name
+            shutil.copy2(result["output_path"], destination)
+            processed_stem_paths[stem_name] = str(destination)
+            if duration is None:
+                duration = float(result["duration"])
+                resolved_key = str(result["key"])
+                relative_key = str(result.get("relative_key") or "") or None
+                compatible_keys = list(result.get("compatible_keys") or [])
+
+        if duration is None:
+            duration = song.duration or 0.0
+        return processed_stem_paths, duration, resolved_key, relative_key, compatible_keys
+
+    def _run_workflow(self, song: SongRecord, target_bpm: Optional[float], target_key: Optional[str]) -> None:
+        workflow_steps = self._workflow_steps()
+        if not workflow_steps:
+            raise AudioProcessingError("Enable at least one workflow step before running the workflow.")
+
+        self.update_song_status(song, SongStatus.PROCESSING.value)
+        self._ensure_song_analysis(song)
+
+        current_mix_path = song.processed_path or song.file_path
+        current_stem_paths: Optional[dict[str, str]] = None
+        current_bpm = song.bpm
+        current_key = song.musical_key
+
+        for step_index, step_id in enumerate(workflow_steps, start=1):
+            self.check_canceled()
+            step_label = WORKFLOW_STEP_LABELS.get(step_id, step_id.replace("_", " ").title())
+            self.log.emit(f"{song.file_name}: workflow step {step_index}/{len(workflow_steps)} - {step_label}.")
+
+            if step_id == "match_key":
+                if not target_key:
+                    self.log.emit(f"{song.file_name}: skipping Match Key because no Target Key is set.")
+                    continue
+                if current_stem_paths is None:
+                    working_song = self._make_temporary_song(current_mix_path, song.file_name, current_bpm, current_key)
+                    self.update_song_status(song, SongStatus.MATCHING_KEY.value)
+                    result = match_song_key(
+                        working_song,
+                        target_key,
+                        log_callback=self.log.emit,
+                        cancel_callback=self.is_canceled,
+                    )
+                    current_mix_path = str(result["output_path"])
+                    song.processed_path = current_mix_path
+                    song.duration = float(result["duration"])
+                    current_key = str(result["key"])
+                    song.musical_key = current_key
+                    song.relative_key = str(result.get("relative_key") or "") or None
+                    song.compatible_keys = list(result.get("compatible_keys") or [])
+                    self.song_updated.emit(song)
+                else:
+                    processed_stem_paths, duration, resolved_key, relative_key, compatible_keys = self._process_stems_for_key(
+                        song,
+                        current_stem_paths,
+                        current_bpm,
+                        current_key,
+                        target_key,
+                    )
+                    current_stem_paths = processed_stem_paths
+                    song.stems_dir = str(Path(next(iter(processed_stem_paths.values()))).parent)
+                    song.duration = duration
+                    current_key = resolved_key
+                    song.musical_key = resolved_key
+                    song.relative_key = relative_key
+                    song.compatible_keys = compatible_keys
+                    self.song_updated.emit(song)
+                continue
+
+            if step_id == "match_tempo":
+                if target_bpm is None:
+                    self.log.emit(f"{song.file_name}: skipping Match Tempo because no Target BPM is set.")
+                    continue
+                if current_stem_paths is None:
+                    working_song = self._make_temporary_song(current_mix_path, song.file_name, current_bpm, current_key)
+                    self.update_song_status(song, SongStatus.MATCHING_TEMPO.value)
+                    result = match_song_tempo(
+                        working_song,
+                        target_bpm,
+                        log_callback=self.log.emit,
+                        cancel_callback=self.is_canceled,
+                    )
+                    current_mix_path = str(result["output_path"])
+                    song.processed_path = current_mix_path
+                    song.duration = float(result["duration"])
+                    current_bpm = float(result["bpm"])
+                    song.bpm = current_bpm
+                    self.song_updated.emit(song)
+                else:
+                    processed_stem_paths, duration = self._process_stems_for_tempo(
+                        song,
+                        current_stem_paths,
+                        current_bpm,
+                        current_key,
+                        target_bpm,
+                    )
+                    current_stem_paths = processed_stem_paths
+                    song.stems_dir = str(Path(next(iter(processed_stem_paths.values()))).parent)
+                    song.duration = duration
+                    current_bpm = target_bpm
+                    song.bpm = current_bpm
+                    self.song_updated.emit(song)
+                continue
+
+            if step_id == "separate":
+                stem_option, _selected_stems = self._effective_stem_settings(song)
+                if stem_option is None:
+                    self.log.emit(f"{song.file_name}: skipping Separate Stems because no stems are selected.")
+                    continue
+                song.processed_path = current_mix_path if current_mix_path != song.file_path else song.processed_path
+                self._separate(song)
+                current_stem_paths = self._stem_paths_from_directory(song.stems_dir or "")
+                if not current_stem_paths:
+                    raise AudioProcessingError(f"No stems were produced for {song.file_name}.")
+                continue
+
+            raise AudioProcessingError(f"Unsupported workflow step: {step_id}")
 
         song.status = SongStatus.READY.value
         song.last_error = None
         self.song_updated.emit(song)
-        self.log.emit(f"Full pipeline finished for {song.file_name}.")
+        self.log.emit(f"Workflow finished for {song.file_name}.")
 
     def _has_exportable_artifacts(self, song: SongRecord) -> bool:
         return bool(
@@ -338,6 +527,7 @@ class ProcessingWorker(BaseWorker):
         if not self._has_exportable_artifacts(song):
             return
 
+        self.check_canceled()
         result = export_song_artifacts(song, self.options.output_dir, self.options.key_display_preference)
         song.status = SongStatus.EXPORTED.value
         song.last_error = None
@@ -352,6 +542,7 @@ class ProcessingWorker(BaseWorker):
         if not self.options.output_dir:
             raise AudioProcessingError("Choose an export folder before exporting cached results.")
 
+        self.check_canceled()
         self.update_song_status(song, SongStatus.PROCESSING.value)
         result = export_song_artifacts(song, self.options.output_dir, self.options.key_display_preference)
         song.status = SongStatus.EXPORTED.value

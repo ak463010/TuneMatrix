@@ -30,10 +30,13 @@ What works now:
 - `BPM Range` and `Key Hint` stay editable during running tasks; active analysis is restarted with the latest values, while non-analysis tasks queue the updated song for re-analysis next
 - a global `Key Display` preference switches visible key names between `Auto`, `Prefer Sharps`, and `Prefer Flats`
 - the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, and stem selection
+- the right sidebar shows a fixed workflow visualization for `Match Key -> Match Tempo -> Separate Stems`
+- each workflow step can be enabled or disabled without changing the execution order
+- the workflow visualization is selection-aware and shows when a step will run, partially run, or be skipped
 - `Output Folder` remains a single global export setting and is persisted separately from per-song processing settings
 - exported processed filenames that include key names follow the current global key-display preference
 - worker-threaded analyze, tempo match, key shift, and export flows
-- separate stems, match tempo, match key, and process all now auto-export on success
+- separate stems, match tempo, match key, and workflow runs now auto-export on success
 - manual export remains available from the `File` menu as `Export Cached Results`
 - project save/load with song state, global output settings, and key-display preference persisted to JSON
 - dependency-aware UI gating for unsupported actions

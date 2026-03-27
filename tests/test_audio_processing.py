@@ -11,6 +11,8 @@ import soundfile as sf
 import torch as th
 
 from audio_processing import (
+    TaskCanceledError,
+    _apply_demucs_model_with_cancel,
     _export_processed_filename,
     action_base_requirement_message,
     action_runtime_issues,
@@ -133,10 +135,8 @@ class AudioProcessingTests(unittest.TestCase):
             ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
                 "audio_processing.librosa.load",
                 return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
-            ), patch("audio_processing.th.cuda.is_available", return_value=False), patch(
-                "audio_processing._check_canceled"
             ), patch("audio_processing._log"), patch(
-                "demucs.apply.apply_model", return_value=fake_sources.unsqueeze(0)
+                "audio_processing._apply_demucs_model_with_cancel", return_value=fake_sources.unsqueeze(0)
             ):
                 result = separate_song_stems(song, "Vocals")
 
@@ -172,10 +172,8 @@ class AudioProcessingTests(unittest.TestCase):
             ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
                 "audio_processing.librosa.load",
                 return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
-            ), patch("audio_processing.th.cuda.is_available", return_value=False), patch(
-                "audio_processing._check_canceled"
             ), patch("audio_processing._log"), patch(
-                "demucs.apply.apply_model", return_value=fake_sources.unsqueeze(0)
+                "audio_processing._apply_demucs_model_with_cancel", return_value=fake_sources.unsqueeze(0)
             ):
                 result = separate_song_stems(song, "All stems", selected_stems=["Vocals", "Bass"])
 
@@ -253,6 +251,26 @@ class AudioProcessingTests(unittest.TestCase):
             exported_path = Path(result["paths"][0])
             self.assertEqual(exported_path.name, "demo_key_Eb_Minor.wav")
             self.assertTrue(exported_path.exists())
+
+    def test_apply_demucs_model_with_cancel_stops_between_chunks(self) -> None:
+        class FakeDemucs(th.nn.Module):
+            samplerate = 10
+            audio_channels = 2
+            sources = ["drums", "vocals"]
+            segment = 0.5
+
+            def forward(self, x):
+                return th.stack([x, x], dim=1)
+
+        mix = th.ones(1, 2, 20, dtype=th.float32)
+        cancel_checks = {"count": 0}
+
+        def cancel_callback() -> bool:
+            cancel_checks["count"] += 1
+            return cancel_checks["count"] >= 3
+
+        with self.assertRaises(TaskCanceledError):
+            _apply_demucs_model_with_cancel(FakeDemucs(), mix, cancel_callback=cancel_callback, device="cpu")
 
 
 if __name__ == "__main__":

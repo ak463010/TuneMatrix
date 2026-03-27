@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 import re
@@ -56,6 +56,14 @@ KEY_OPTIONS = [
     "B Minor",
 ]
 
+WORKFLOW_STEP_OPTIONS = [
+    ("match_key", "Match Key"),
+    ("match_tempo", "Match Tempo"),
+    ("separate", "Separate Stems"),
+]
+WORKFLOW_STEP_LABELS = {step_id: label for step_id, label in WORKFLOW_STEP_OPTIONS}
+WORKFLOW_DEFAULT_ORDER = [step_id for step_id, _label in WORKFLOW_STEP_OPTIONS]
+
 BPM_RANGE_OPTIONS = [
     ("Auto", None),
     ("60 - 90 BPM", (60.0, 90.0)),
@@ -83,6 +91,18 @@ class SongStatus(str, Enum):
 
 
 @dataclass
+class WorkflowStep:
+    step_id: str
+    enabled: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "step_id": self.step_id,
+            "enabled": self.enabled,
+        }
+
+
+@dataclass
 class SongRecord:
     file_path: str
     file_name: str
@@ -91,7 +111,7 @@ class SongRecord:
     processing_override_enabled: bool = False
     processing_target_bpm: Optional[float] = None
     processing_target_key: Optional[str] = None
-    processing_selected_stems: Optional[list[str]] = None
+    processing_selected_stems: Optional[list[str]] = field(default_factory=list)
     duration: Optional[float] = None
     bpm: Optional[float] = None
     musical_key: Optional[str] = None
@@ -105,13 +125,13 @@ class SongRecord:
     @classmethod
     def from_path(cls, file_path: str) -> "SongRecord":
         path = Path(file_path)
-        return cls(file_path=str(path), file_name=path.name)
+        return cls(file_path=str(path), file_name=path.name, processing_selected_stems=[])
 
     def to_dict(self) -> dict[str, Any]:
         has_song_processing = bool(
             self.processing_target_bpm is not None
             or self.processing_target_key
-            or self.processing_selected_stems is not None
+            or bool(self.processing_selected_stems)
         )
         return {
             "file_path": self.file_path,
@@ -155,7 +175,7 @@ class SongRecord:
             processing_selected_stems=(
                 list(data.get("processing_selected_stems"))
                 if isinstance(data.get("processing_selected_stems"), list)
-                else None
+                else []
             ),
             duration=data.get("duration"),
             bpm=data.get("bpm"),
@@ -177,6 +197,29 @@ class ProcessingOptions:
     target_key: Optional[str] = None
     output_dir: Optional[str] = None
     key_display_preference: Optional[str] = None
+    workflow_steps: Optional[list[str]] = None
+
+
+def normalize_workflow_steps(raw_steps: Any) -> list[WorkflowStep]:
+    enabled_by_id = {step_id: True for step_id in WORKFLOW_DEFAULT_ORDER}
+
+    if isinstance(raw_steps, list):
+        for raw_step in raw_steps:
+            step_id: Optional[str] = None
+            enabled = True
+            if isinstance(raw_step, str):
+                step_id = raw_step
+            elif isinstance(raw_step, dict):
+                candidate = raw_step.get("step_id")
+                if isinstance(candidate, str):
+                    step_id = candidate
+                    enabled = bool(raw_step.get("enabled", True))
+
+            if not step_id or step_id not in WORKFLOW_STEP_LABELS:
+                continue
+            enabled_by_id[step_id] = enabled
+
+    return [WorkflowStep(step_id=step_id, enabled=enabled_by_id[step_id]) for step_id in WORKFLOW_DEFAULT_ORDER]
 
 
 def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:

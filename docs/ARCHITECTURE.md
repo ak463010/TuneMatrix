@@ -25,7 +25,7 @@ Each record stores:
 - processed output path
 - last error text
 
-`ProcessingOptions` now only carries the remaining global export settings needed by the workers.
+`ProcessingOptions` now carries the global export settings plus the currently enabled ordered workflow steps.
 
 Project sessions are stored as JSON with:
 
@@ -45,6 +45,8 @@ Key responsibilities:
 - mirror song data into the table
 - apply the global key-display preference to visible key labels and tooltips
 - bind the right sidebar to the current song selection
+- maintain the fixed workflow pipeline state for `Match Key -> Match Tempo -> Separate Stems`
+- update the workflow visualization based on the current song selection and each song's configured targets
 - create and manage worker threads
 - log progress and errors
 - gate actions based on missing dependencies
@@ -77,13 +79,13 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 - changing a song's `BPM Range` or `Key Hint` also queues re-analysis for that specific song
 - if a hint change affects a song in the active analysis batch, the current analysis run is canceled and restarted with the latest values
 
-### Separate Stems
+### Workflow Execution
 
-1. `MainWindow` creates `ProcessingWorker` with action `separate`
-2. worker calls `separate_song_stems`
-3. `audio_processing.py` loads Demucs in-process and runs the model directly
-4. generated stems are written into a cache folder for the song
-5. successful results are then auto-exported to the chosen output folder
+1. `MainWindow` builds an ordered workflow from the drag-and-drop sidebar list
+2. `ProcessingWorker` executes those enabled steps in order for each selected song
+3. key/tempo steps operate on the current mix until stem separation runs
+4. after stem separation, later key/tempo steps operate on each generated stem file
+5. final artifacts are auto-exported to the chosen output folder
 
 ### Match Tempo and Match Key
 

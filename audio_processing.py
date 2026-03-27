@@ -342,6 +342,116 @@ def _load_demucs_model(model_name: str = "htdemucs"):
     return model
 
 
+def _apply_demucs_chunk(model, mix_chunk, device, segment: Optional[float] = None):
+    from demucs.apply import TensorChunk, tensor_chunk
+    from demucs.htdemucs import HTDemucs
+    from demucs.utils import center_trim
+
+    chunk = tensor_chunk(mix_chunk)
+    assert isinstance(chunk, TensorChunk)
+    length = chunk.length
+
+    valid_length: int
+    if isinstance(model, HTDemucs) and segment is not None:
+        valid_length = int(segment * model.samplerate)
+    elif hasattr(model, "valid_length"):
+        valid_length = model.valid_length(length)  # type: ignore[attr-defined]
+    else:
+        valid_length = length
+
+    padded_mix = chunk.padded(valid_length).to(device)
+    with th.no_grad():
+        out = model(padded_mix)
+    assert isinstance(out, th.Tensor)
+    return center_trim(out, length)
+
+
+def _apply_demucs_model_with_cancel(
+    model,
+    mix: "th.Tensor",
+    cancel_callback: CancelCallback = None,
+    device=None,
+    overlap: float = 0.25,
+    transition_power: float = 1.0,
+    segment: Optional[float] = None,
+) -> "th.Tensor":
+    from demucs.apply import BagOfModels, TensorChunk, tensor_chunk
+
+    if device is None:
+        device = mix.device
+    else:
+        device = th.device(device)
+
+    _check_canceled(cancel_callback)
+
+    if isinstance(model, BagOfModels):
+        estimates: th.Tensor | float = 0.0
+        totals = [0.0] * len(model.sources)
+        for sub_model, model_weights in zip(model.models, model.weights):
+            _check_canceled(cancel_callback)
+            try:
+                original_device = next(iter(sub_model.parameters())).device
+            except StopIteration:
+                original_device = device
+            sub_model.to(device)
+            out = _apply_demucs_model_with_cancel(
+                sub_model,
+                mix,
+                cancel_callback=cancel_callback,
+                device=device,
+                overlap=overlap,
+                transition_power=transition_power,
+                segment=segment,
+            )
+            sub_model.to(original_device)
+            for source_index, instrument_weight in enumerate(model_weights):
+                out[:, source_index, :, :] *= instrument_weight
+                totals[source_index] += instrument_weight
+            estimates += out
+
+        assert isinstance(estimates, th.Tensor)
+        for source_index in range(estimates.shape[1]):
+            estimates[:, source_index, :, :] /= totals[source_index]
+        return estimates
+
+    model.to(device)
+    model.eval()
+    assert transition_power >= 1.0, "transition_power < 1 leads to weird behavior."
+
+    batch, channels, length = mix.shape
+    if segment is None:
+        segment = model.segment
+    assert segment is not None and segment > 0.0
+
+    segment_length = int(model.samplerate * segment)
+    stride = max(1, int((1 - overlap) * segment_length))
+    offsets = range(0, length, stride)
+    weight = th.cat(
+        [
+            th.arange(1, segment_length // 2 + 1, device=device),
+            th.arange(segment_length - segment_length // 2, 0, -1, device=device),
+        ]
+    )
+    weight = (weight / weight.max()) ** transition_power
+
+    mix_chunk = tensor_chunk(mix)
+    assert isinstance(mix_chunk, TensorChunk)
+    out = th.zeros(batch, len(model.sources), channels, length, device=mix.device)
+    sum_weight = th.zeros(length, device=mix.device)
+
+    for offset in offsets:
+        _check_canceled(cancel_callback)
+        chunk = TensorChunk(mix_chunk, offset, segment_length)
+        chunk_out = _apply_demucs_chunk(model, chunk, device=device, segment=segment)
+        chunk_length = chunk_out.shape[-1]
+        out[..., offset : offset + segment_length] += (weight[:chunk_length] * chunk_out).to(mix.device)
+        sum_weight[offset : offset + segment_length] += weight[:chunk_length].to(mix.device)
+
+    assert sum_weight.min() > 0
+    out /= sum_weight
+    return out
+
+
 def _run_demucs_in_process(
     file_path: str,
     log_callback: LogCallback = None,
@@ -353,11 +463,6 @@ def _run_demucs_in_process(
     _require_torch_stack()
     _require_decode_support(file_path)
     _check_canceled(cancel_callback)
-
-    try:
-        from demucs.apply import apply_model
-    except Exception as exc:  # pragma: no cover - dependency dependent
-        raise DependencyError(f"Could not import Demucs apply helper: {exc}") from exc
 
     model = _load_demucs_model(model_name)
     _log(log_callback, f"Loaded Demucs model `{model_name}`.")
@@ -377,14 +482,12 @@ def _run_demucs_in_process(
 
     device = "cuda" if th.cuda.is_available() else "cpu"
     _log(log_callback, f"Running Demucs on {device.upper()} for {Path(file_path).name}.")
-    sources = apply_model(
+    sources = _apply_demucs_model_with_cancel(
         model,
         mix[None],
+        cancel_callback=cancel_callback,
         device=device,
-        shifts=1,
-        split=True,
         overlap=0.25,
-        progress=False,
     )[0]
 
     _check_canceled(cancel_callback)
@@ -418,38 +521,71 @@ def _save_audio(output_path: str | Path, audio: "np.ndarray", sample_rate: int) 
     return str(output)
 
 
-def _run_per_channel(audio: "np.ndarray", processor: Callable[["np.ndarray"], "np.ndarray"]) -> "np.ndarray":
+def _run_per_channel(
+    audio: "np.ndarray",
+    processor: Callable[["np.ndarray"], "np.ndarray"],
+    cancel_callback: CancelCallback = None,
+) -> "np.ndarray":
     if audio.ndim == 1:
+        _check_canceled(cancel_callback)
         return np.asarray(processor(audio), dtype=np.float32)
 
-    channels = [np.asarray(processor(channel), dtype=np.float32) for channel in audio]
+    channels = []
+    for channel in audio:
+        _check_canceled(cancel_callback)
+        channels.append(np.asarray(processor(channel), dtype=np.float32))
+    _check_canceled(cancel_callback)
     min_length = min(channel.shape[-1] for channel in channels)
     trimmed = [channel[:min_length] for channel in channels]
     return np.vstack(trimmed).astype(np.float32)
 
 
-def _time_stretch(audio: "np.ndarray", sample_rate: int, rate: float, log_callback: LogCallback = None) -> "np.ndarray":
+def _time_stretch(
+    audio: "np.ndarray",
+    sample_rate: int,
+    rate: float,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+) -> "np.ndarray":
     if rate <= 0:
         raise AudioProcessingError("Time-stretch rate must be greater than zero.")
 
     if pyrb is not None and find_executable("rubberband"):
         _log(log_callback, "Using Rubber Band for tempo matching.")
-        return _run_per_channel(audio, lambda channel: pyrb.time_stretch(channel, sample_rate, rate))
+        return _run_per_channel(
+            audio,
+            lambda channel: pyrb.time_stretch(channel, sample_rate, rate),
+            cancel_callback=cancel_callback,
+        )
 
     if librosa is None:
         raise DependencyError("Neither Rubber Band nor librosa are available for tempo matching.")
 
     _log(log_callback, "Rubber Band not found. Falling back to librosa for tempo matching.")
-    return _run_per_channel(audio, lambda channel: librosa.effects.time_stretch(channel, rate=rate))
+    return _run_per_channel(
+        audio,
+        lambda channel: librosa.effects.time_stretch(channel, rate=rate),
+        cancel_callback=cancel_callback,
+    )
 
 
-def _pitch_shift(audio: "np.ndarray", sample_rate: int, semitones: float, log_callback: LogCallback = None) -> "np.ndarray":
+def _pitch_shift(
+    audio: "np.ndarray",
+    sample_rate: int,
+    semitones: float,
+    log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
+) -> "np.ndarray":
     if abs(semitones) < 1e-6:
         return audio
 
     if pyrb is not None and find_executable("rubberband"):
         _log(log_callback, "Using Rubber Band for key matching.")
-        return _run_per_channel(audio, lambda channel: pyrb.pitch_shift(channel, sample_rate, semitones))
+        return _run_per_channel(
+            audio,
+            lambda channel: pyrb.pitch_shift(channel, sample_rate, semitones),
+            cancel_callback=cancel_callback,
+        )
 
     if librosa is None:
         raise DependencyError("Neither Rubber Band nor librosa are available for key matching.")
@@ -458,6 +594,7 @@ def _pitch_shift(audio: "np.ndarray", sample_rate: int, semitones: float, log_ca
     return _run_per_channel(
         audio,
         lambda channel: librosa.effects.pitch_shift(channel, sr=sample_rate, n_steps=semitones),
+        cancel_callback=cancel_callback,
     )
 
 
@@ -530,13 +667,16 @@ def match_song_tempo(
     song: SongRecord,
     target_bpm: float,
     log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
 ) -> dict[str, float | str]:
+    _check_canceled(cancel_callback)
     if target_bpm <= 0:
         raise AudioProcessingError("Target BPM must be greater than zero.")
 
     source_bpm = song.bpm
     source_path = song.processed_path or song.file_path
     if source_bpm is None or source_bpm <= 0:
+        _check_canceled(cancel_callback)
         analysis = analyze_audio(source_path)
         source_bpm = float(analysis["bpm"] or 0)
         song.duration = float(analysis["duration"] or 0)
@@ -552,13 +692,16 @@ def match_song_tempo(
         duration = song.duration or 0.0
         return {"output_path": source_path, "duration": duration, "bpm": target_bpm}
 
+    _check_canceled(cancel_callback)
     audio, sample_rate = _load_audio_for_processing(source_path)
     rate = target_bpm / source_bpm
-    stretched = _time_stretch(audio, sample_rate, rate, log_callback=log_callback)
+    stretched = _time_stretch(audio, sample_rate, rate, log_callback=log_callback, cancel_callback=cancel_callback)
     output_dir = make_song_cache_dir(song.file_path, song.file_name, "processed")
     suffix = f"tempo_{int(round(target_bpm))}bpm"
     output_path = Path(output_dir) / build_output_filename(song.file_name, suffix, ".wav")
+    _check_canceled(cancel_callback)
     saved_path = _save_audio(output_path, stretched, sample_rate)
+    _check_canceled(cancel_callback)
     duration = float(stretched.shape[-1] / sample_rate)
     return {"output_path": saved_path, "duration": duration, "bpm": target_bpm}
 
@@ -567,13 +710,16 @@ def match_song_key(
     song: SongRecord,
     target_key: str,
     log_callback: LogCallback = None,
+    cancel_callback: CancelCallback = None,
 ) -> dict[str, float | str | bool]:
+    _check_canceled(cancel_callback)
     if not target_key:
         raise AudioProcessingError("Target key is required.")
 
     source_key = song.musical_key
     source_path = song.processed_path or song.file_path
     if not source_key:
+        _check_canceled(cancel_callback)
         analysis = analyze_audio(source_path)
         source_key = str(analysis["key"] or "")
         song.duration = float(analysis["duration"] or 0)
@@ -608,12 +754,21 @@ def match_song_key(
             "mode_matched": same_mode,
         }
 
+    _check_canceled(cancel_callback)
     audio, sample_rate = _load_audio_for_processing(source_path)
-    shifted = _pitch_shift(audio, sample_rate, semitones, log_callback=log_callback)
+    shifted = _pitch_shift(
+        audio,
+        sample_rate,
+        semitones,
+        log_callback=log_callback,
+        cancel_callback=cancel_callback,
+    )
     output_dir = make_song_cache_dir(song.file_path, song.file_name, "processed")
     suffix = f"key_{safe_stem(target_key)}"
     output_path = Path(output_dir) / build_output_filename(song.file_name, suffix, ".wav")
+    _check_canceled(cancel_callback)
     saved_path = _save_audio(output_path, shifted, sample_rate)
+    _check_canceled(cancel_callback)
     duration = float(shifted.shape[-1] / sample_rate)
     if not same_mode:
         _log(
@@ -637,7 +792,8 @@ def separate_song_stems(
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, str]:
-    issues = action_runtime_issues("separate", [song.file_path])
+    source_path = song.processed_path or song.file_path
+    issues = action_runtime_issues("separate", [source_path])
     if issues:
         raise DependencyError(" ".join(issues))
 
@@ -648,7 +804,7 @@ def separate_song_stems(
 
     _log(log_callback, f"Running Demucs for {song.file_name}...")
     stems, sample_rate = _run_demucs_in_process(
-        song.file_path,
+        source_path,
         log_callback=log_callback,
         cancel_callback=cancel_callback,
     )
