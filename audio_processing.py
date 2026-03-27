@@ -731,7 +731,7 @@ def match_song_key(
         raise AudioProcessingError(f"Key detection failed for {song.file_name}.")
 
     _, source_mode = _split_key_name(source_key)
-    target_note, _ = _split_key_name(target_key)
+    target_note, target_mode = _split_key_name(target_key)
     semitones, same_mode = calculate_semitones(source_key, target_key)
     resolved_key = target_key if same_mode else f"{target_note} {source_mode}"
     if semitones == 0:
@@ -740,7 +740,7 @@ def match_song_key(
         if not same_mode:
             _log(
                 log_callback,
-                f"{song.file_name} already shares the target tonic, but pitch shifting cannot change the mode from {source_mode}.",
+                f"{song.file_name} already has the target root note. TuneMatrix cannot convert {source_mode} to {target_mode}, so no pitch shift was applied.",
             )
         else:
             _log(log_callback, f"{song.file_name} already matches the target key.")
@@ -773,7 +773,7 @@ def match_song_key(
     if not same_mode:
         _log(
             log_callback,
-            f"{song.file_name} was shifted to the target tonic, but the mode remains {source_mode}.",
+            f"{song.file_name} was shifted to the target root note, but TuneMatrix cannot convert {source_mode} to {target_mode}. The result remains {resolved_key}.",
         )
     return {
         "output_path": saved_path,

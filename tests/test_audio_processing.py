@@ -210,6 +210,22 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertEqual(len(export_result["paths"]), 1)
             self.assertTrue(Path(export_result["paths"][0]).exists())
 
+    def test_match_song_key_logs_clear_message_when_mode_conversion_is_not_possible(self) -> None:
+        song = SongRecord.from_path("demo.wav")
+        song.duration = 10.0
+        song.musical_key = "E Minor"
+
+        logs: list[str] = []
+        result = match_song_key(song, "E Major", log_callback=logs.append)
+
+        self.assertEqual(result["key"], "E Minor")
+        self.assertEqual(
+            logs,
+            [
+                "demo.wav already has the target root note. TuneMatrix cannot convert Minor to Major, so no pitch shift was applied."
+            ],
+        )
+
     def test_export_song_artifacts_copies_original_when_no_processed_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
