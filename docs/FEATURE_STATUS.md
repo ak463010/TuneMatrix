@@ -28,6 +28,7 @@ This file describes the current implementation status against the requested feat
 
 - newly imported songs are auto-analyzed in the background
 - changing a song's `BPM Range` or `Key Hint` queues automatic re-analysis for that song
+- `BPM Range` and `Key Hint` remain editable while tasks are running; changing them restarts active analysis or queues fresh analysis after the current non-analysis task
 - duration detection with `librosa`
 - BPM estimation with `librosa`
 - optional per-song BPM-range hint to reduce half-time/double-time BPM ambiguity

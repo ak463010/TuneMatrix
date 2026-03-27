@@ -1877,6 +1877,18 @@ class MainWindow(QMainWindow):
             self._start_auto_analysis(candidates, reason)
             return
 
+        if (
+            reason == "hint change"
+            and isinstance(self.current_worker, AnalyzeWorker)
+            and any(song.file_path in {active_song.file_path for active_song in self.current_worker.songs} for song in candidates)
+        ):
+            self.append_log("Analysis hints changed. Restarting the current analysis queue with the latest values.")
+            active_songs = list(self.current_worker.songs)
+            self.current_worker.cancel()
+            self._queue_auto_analysis(active_songs, reason)
+            self._queue_auto_analysis(candidates, reason)
+            return
+
         self._queue_auto_analysis(candidates, reason)
 
     def start_analyze_task(self) -> None:
@@ -2023,7 +2035,7 @@ class MainWindow(QMainWindow):
         self.import_button.setEnabled(True)
         self.import_action.setEnabled(True)
 
-        self.song_table.setEnabled(not running)
+        self.song_table.setEnabled(True)
         self.cancel_button.setEnabled(running)
         self.cancel_button.setVisible(running)
         self.cancel_action.setEnabled(running)

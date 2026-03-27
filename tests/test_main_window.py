@@ -320,6 +320,16 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.song_table.item(0, 10).icon().isNull())
         window.current_worker = None
 
+    def test_song_table_stays_enabled_while_task_is_running(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["table_enabled.wav"])
+
+        window.current_worker = Mock()
+        window.set_task_running(True)
+
+        self.assertTrue(window.song_table.isEnabled())
+        window.current_worker = None
+
     def test_bpm_range_change_triggers_auto_reanalysis(self) -> None:
         window = self._build_window()
         self._import_files(window, ["bpm_reanalyze.wav"])
@@ -332,6 +342,26 @@ class MainWindowTests(unittest.TestCase):
 
         start_worker.assert_called_once()
         self.assertEqual(start_worker.call_args[0][1], "Auto-analyzing updated songs")
+
+    def test_hint_change_cancels_active_analysis_and_requeues_latest_values(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+
+        active_worker = AnalyzeWorker([window.songs[0], window.songs[1]])
+        active_worker.cancel = Mock()
+        window.current_worker = active_worker
+
+        key_hint_combo = window._table_combo_at(0, 3)
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "start_worker", Mock()
+        ) as start_worker:
+            key_hint_combo.setCurrentIndex(key_hint_combo.findData("C Major"))
+
+        active_worker.cancel.assert_called_once()
+        start_worker.assert_not_called()
+        self.assertIn(window.songs[0].file_path, window.pending_auto_analysis_paths)
+        self.assertIn(window.songs[1].file_path, window.pending_auto_analysis_paths)
+        window.current_worker = None
 
     def test_key_hint_change_triggers_auto_reanalysis(self) -> None:
         window = self._build_window()

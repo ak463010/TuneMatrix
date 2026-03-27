@@ -75,6 +75,7 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 - newly imported songs start analysis automatically when the app is idle
 - if another task is running, those songs move to `Queued for analysis`
 - changing a song's `BPM Range` or `Key Hint` also queues re-analysis for that specific song
+- if a hint change affects a song in the active analysis batch, the current analysis run is canceled and restarted with the latest values
 
 ### Separate Stems
 
