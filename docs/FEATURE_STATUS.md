@@ -44,7 +44,7 @@ This file describes the current implementation status against the requested feat
 - stem separation entry point using Demucs
 - tempo matching
 - key pitch shifting
-- per-song target BPM, target key, stem selection, and reference-song selection through the right sidebar
+- per-song target BPM, target key, and stem selection through the right sidebar
 - global output-folder selection
 - process-all worker pipeline
 - separate stems, match tempo, match key, and process-all actions auto-export processed files and stems to the selected output folder

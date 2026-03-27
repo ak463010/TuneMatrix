@@ -92,9 +92,6 @@ class SongRecord:
     processing_target_bpm: Optional[float] = None
     processing_target_key: Optional[str] = None
     processing_selected_stems: Optional[list[str]] = None
-    use_reference_bpm: bool = False
-    use_reference_key: bool = False
-    reference_song_path: Optional[str] = None
     duration: Optional[float] = None
     bpm: Optional[float] = None
     musical_key: Optional[str] = None
@@ -115,9 +112,6 @@ class SongRecord:
             self.processing_target_bpm is not None
             or self.processing_target_key
             or self.processing_selected_stems is not None
-            or self.use_reference_bpm
-            or self.use_reference_key
-            or self.reference_song_path
         )
         return {
             "file_path": self.file_path,
@@ -132,9 +126,6 @@ class SongRecord:
                 if self.processing_selected_stems is not None
                 else None
             ),
-            "use_reference_bpm": self.use_reference_bpm,
-            "use_reference_key": self.use_reference_key,
-            "reference_song_path": self.reference_song_path,
             "duration": self.duration,
             "bpm": self.bpm,
             "musical_key": self.musical_key,
@@ -150,7 +141,6 @@ class SongRecord:
     def from_dict(cls, data: dict[str, Any]) -> "SongRecord":
         file_path = str(data.get("file_path", "")).strip()
         file_name = str(data.get("file_name", "")).strip() or Path(file_path).name
-        legacy_match_to_reference = bool(data.get("match_to_reference", False))
         status = str(data.get("status") or SongStatus.QUEUED_ANALYSIS.value)
         if status == "Imported":
             status = SongStatus.QUEUED_ANALYSIS.value
@@ -167,9 +157,6 @@ class SongRecord:
                 if isinstance(data.get("processing_selected_stems"), list)
                 else None
             ),
-            use_reference_bpm=bool(data.get("use_reference_bpm", legacy_match_to_reference)),
-            use_reference_key=bool(data.get("use_reference_key", legacy_match_to_reference)),
-            reference_song_path=data.get("reference_song_path"),
             duration=data.get("duration"),
             bpm=data.get("bpm"),
             musical_key=data.get("musical_key"),
@@ -188,9 +175,6 @@ class ProcessingOptions:
     selected_stems: Optional[list[str]] = None
     target_bpm: Optional[float] = None
     target_key: Optional[str] = None
-    use_reference_bpm: bool = False
-    use_reference_key: bool = False
-    reference_song_path: Optional[str] = None
     output_dir: Optional[str] = None
     key_display_preference: Optional[str] = None
 

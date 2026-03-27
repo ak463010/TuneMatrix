@@ -19,7 +19,7 @@ Each record stores:
 
 - original file path and file name
 - analyzed metadata such as duration, BPM, detected key, relative key, and compatible keys
-- per-song processing settings such as target BPM, target key, selected stems, and reference song
+- per-song processing settings such as target BPM, target key, and selected stems
 - current UI status
 - generated stems directory
 - processed output path

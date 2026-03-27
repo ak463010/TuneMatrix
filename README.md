@@ -29,7 +29,7 @@ What works now:
 - changing a song's `BPM Range` or `Key Hint` triggers automatic re-analysis for that song
 - `BPM Range` and `Key Hint` stay editable during running tasks; active analysis is restarted with the latest values, while non-analysis tasks queue the updated song for re-analysis next
 - a global `Key Display` preference switches visible key names between `Auto`, `Prefer Sharps`, and `Prefer Flats`
-- the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, stem selection, and reference song
+- the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, and stem selection
 - `Output Folder` remains a single global export setting and is persisted separately from per-song processing settings
 - exported processed filenames that include key names follow the current global key-display preference
 - worker-threaded analyze, tempo match, key shift, and export flows
