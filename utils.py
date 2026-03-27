@@ -9,6 +9,32 @@ from typing import Optional
 
 SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a"}
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+CAMELOT_KEY_MAP = {
+    "C Major": "8B",
+    "C# Major": "3B",
+    "D Major": "10B",
+    "D# Major": "5B",
+    "E Major": "12B",
+    "F Major": "7B",
+    "F# Major": "2B",
+    "G Major": "9B",
+    "G# Major": "4B",
+    "A Major": "11B",
+    "A# Major": "6B",
+    "B Major": "1B",
+    "C Minor": "5A",
+    "C# Minor": "12A",
+    "D Minor": "7A",
+    "D# Minor": "2A",
+    "E Minor": "9A",
+    "F Minor": "4A",
+    "F# Minor": "11A",
+    "G Minor": "6A",
+    "G# Minor": "1A",
+    "A Minor": "8A",
+    "A# Minor": "3A",
+    "B Minor": "10A",
+}
 
 
 def is_supported_audio_file(path: str) -> bool:
@@ -52,6 +78,16 @@ def format_key_list(keys: Optional[list[str]]) -> str:
     if not keys:
         return "N/A"
     return ", ".join(keys)
+
+
+def camelot_for_key(key_name: Optional[str]) -> Optional[str]:
+    if not key_name:
+        return None
+    return CAMELOT_KEY_MAP.get(key_name)
+
+
+def format_camelot(key_name: Optional[str]) -> str:
+    return camelot_for_key(key_name) or "N/A"
 
 
 def safe_stem(value: str) -> str:

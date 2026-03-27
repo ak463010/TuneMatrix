@@ -46,8 +46,10 @@ from models import (
     TABLE_HEADERS,
 )
 from utils import (
+    camelot_for_key,
     default_export_dir,
     format_bpm,
+    format_camelot,
     format_duration,
     format_key,
     format_key_list,
@@ -473,6 +475,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(10, QHeaderView.ResizeMode.ResizeToContents)
         header.setVisible(False)
 
         self.song_table.setColumnHidden(1, True)
@@ -1934,12 +1937,14 @@ class MainWindow(QMainWindow):
             format_key(song.musical_key),
             format_key(song.relative_key),
             format_key_list(song.compatible_keys),
+            format_camelot(song.musical_key),
             song.status,
         ]
         status_column = len(values) - 1
         key_column = 6
         relative_column = 7
         compatible_column = 8
+        camelot_column = 9
         override_tooltip = self._song_processing_override_tooltip(song)
         for column, value in enumerate(values):
             if column in {bpm_range_column, key_hint_column}:
@@ -1964,6 +1969,7 @@ class MainWindow(QMainWindow):
             if column == key_column:
                 item.setToolTip(
                     f"Detected: {format_key(song.musical_key)}\n"
+                    f"Camelot: {format_camelot(song.musical_key)}\n"
                     f"Relative Key: {format_key(song.relative_key)}\n"
                     f"Compatible Keys: {format_key_list(song.compatible_keys)}"
                 )
@@ -1971,6 +1977,16 @@ class MainWindow(QMainWindow):
                 item.setToolTip(f"Relative Key: {format_key(song.relative_key)}")
             elif column == compatible_column:
                 item.setToolTip(f"Compatible Keys: {format_key_list(song.compatible_keys)}")
+            elif column == camelot_column:
+                compatible_camelot = [
+                    f"{compatible_key} ({camelot_for_key(compatible_key) or 'N/A'})"
+                    for compatible_key in (song.compatible_keys or [])
+                ]
+                item.setToolTip(
+                    f"Camelot: {format_camelot(song.musical_key)}\n"
+                    f"Relative Key: {format_key(song.relative_key)} ({camelot_for_key(song.relative_key) or 'N/A'})\n"
+                    f"Compatible Keys: {', '.join(compatible_camelot) if compatible_camelot else 'N/A'}"
+                )
             elif column == status_column and song.status == SongStatus.ERROR.value:
                 status_tooltip = song.last_error or "Task failed."
                 if override_tooltip:

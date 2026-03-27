@@ -6,7 +6,9 @@ from pathlib import Path
 
 from utils import (
     build_output_filename,
+    camelot_for_key,
     format_bpm,
+    format_camelot,
     format_duration,
     format_key,
     safe_stem,
@@ -28,6 +30,13 @@ class UtilsTests(unittest.TestCase):
     def test_safe_stem_and_build_output_filename(self) -> None:
         self.assertEqual(safe_stem(" A song / name "), "A_song_name")
         self.assertEqual(build_output_filename("Track One.wav", "tempo 128", ".wav"), "Track_One_tempo_128.wav")
+
+    def test_camelot_helpers(self) -> None:
+        self.assertEqual(camelot_for_key("A Minor"), "8A")
+        self.assertEqual(camelot_for_key("C Major"), "8B")
+        self.assertEqual(camelot_for_key("G# Minor"), "1A")
+        self.assertEqual(format_camelot("E Major"), "12B")
+        self.assertEqual(format_camelot(None), "N/A")
 
     def test_validate_audio_file_accepts_supported_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

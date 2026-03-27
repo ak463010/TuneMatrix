@@ -16,6 +16,7 @@ TABLE_HEADERS = [
     "Key",
     "Relative Key",
     "Compatible Keys",
+    "Camelot",
     "Status",
 ]
 
