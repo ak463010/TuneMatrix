@@ -292,6 +292,22 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.song_table.rowCount(), 1)
         self.assertEqual(window.song_table.item(0, 0).text(), "demo.wav")
 
+    def test_compatible_keys_tooltip_includes_camelot_values(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["camelot.wav"])
+
+        song = window.songs[0]
+        song.musical_key = "C Major"
+        song.relative_key = "A Minor"
+        song.compatible_keys = ["G Major", "E Minor"]
+        window._populate_song_row(0, song)
+
+        self.assertEqual(window.song_table.item(0, 7).text(), "8B")
+        self.assertEqual(
+            window.song_table.item(0, 9).toolTip(),
+            "Compatible Keys: G Major (9B), E Minor (9A)",
+        )
+
     def test_start_analyze_task_blocks_when_runtime_issue_exists(self) -> None:
         window = self._build_window()
         self._import_files(window, ["demo.wav"])

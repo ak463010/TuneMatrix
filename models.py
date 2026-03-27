@@ -14,9 +14,9 @@ TABLE_HEADERS = [
     "Duration",
     "BPM",
     "Key",
+    "Camelot",
     "Relative Key",
     "Compatible Keys",
-    "Camelot",
     "Status",
 ]
 
