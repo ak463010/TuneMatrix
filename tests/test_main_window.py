@@ -258,6 +258,18 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(song.processing_selected_stems, ["Vocals", "Bass"])
         self.assertTrue(song.processing_override_enabled)
 
+    def test_unchecking_all_stems_keeps_empty_selection(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["stems.wav"])
+        window.song_table.selectRow(0)
+
+        for checkbox in window.stem_checkboxes.values():
+            checkbox.setCheckState(Qt.CheckState.Unchecked)
+
+        song = window.songs[0]
+        self.assertEqual(song.processing_selected_stems, [])
+        self.assertTrue(all(not checkbox.isChecked() for checkbox in window.stem_checkboxes.values()))
+
     def test_editing_multi_selection_applies_to_all_selected_songs(self) -> None:
         window = self._build_window()
         paths = self._import_files(window, ["first.wav", "second.wav", "reference.wav"])
@@ -510,6 +522,20 @@ class MainWindowTests(unittest.TestCase):
 
         show_warning.assert_called_once()
         self.assertIn("Target Key", show_warning.call_args[0][0])
+
+    def test_separate_stems_requires_at_least_one_selected_stem(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["separate_validation.wav"])
+        window.song_table.selectRow(0)
+        window.songs[0].processing_selected_stems = []
+        window._load_processing_editor_from_selection()
+
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "show_warning", Mock()
+        ) as show_warning:
+            window.start_processing_task("separate")
+
+        show_warning.assert_called_once_with("Select at least one stem before running Separate Stems.")
 
     def test_collect_project_state_serializes_song_bound_processing_and_global_output(self) -> None:
         window = self._build_window()

@@ -1215,12 +1215,14 @@ class MainWindow(QMainWindow):
         self._schedule_auto_analysis([song], "hint change")
 
     def _display_stem_list(self, stems: Optional[list[str]]) -> str:
-        if not stems or len(stems) == len(self.stem_checkboxes):
+        if stems is None or len(stems) == len(self.stem_checkboxes):
             return "All stems"
+        if len(stems) == 0:
+            return "None"
         return ", ".join(stems)
 
     def _song_selected_stem_values(self, song: SongRecord) -> list[str]:
-        if not song.processing_selected_stems:
+        if song.processing_selected_stems is None:
             return list(self.stem_checkboxes)
         return list(song.processing_selected_stems)
 
@@ -1522,7 +1524,7 @@ class MainWindow(QMainWindow):
             return
 
         selected_stems = [stem_name for stem_name, state in selected_states.items() if state == Qt.CheckState.Checked]
-        normalized_stems = None if not selected_stems or len(selected_stems) == len(self.stem_checkboxes) else selected_stems
+        normalized_stems = None if len(selected_stems) == len(self.stem_checkboxes) else selected_stems
 
         if not self._confirm_override_for_mixed_selection(
             "Stem Selection",
@@ -1812,6 +1814,11 @@ class MainWindow(QMainWindow):
             ]
             if missing_key_songs:
                 return "Each selected song needs a Target Key or Reference Song."
+
+        if action == "separate":
+            empty_stem_songs = [song.file_name for song in songs if song.processing_selected_stems == []]
+            if empty_stem_songs:
+                return "Select at least one stem before running Separate Stems."
 
         return None
 

@@ -223,10 +223,12 @@ class ProcessingWorker(BaseWorker):
             raise AudioProcessingError(f"{reference_song.file_name} does not have a usable key.")
         return reference_song.musical_key
 
-    def _effective_stem_settings(self, song: SongRecord) -> tuple[str, Optional[list[str]]]:
-        selected_stems = list(song.processing_selected_stems) if song.processing_selected_stems else None
-        if not selected_stems:
+    def _effective_stem_settings(self, song: SongRecord) -> tuple[Optional[str], Optional[list[str]]]:
+        if song.processing_selected_stems is None:
             return "All stems", None
+        selected_stems = list(song.processing_selected_stems)
+        if len(selected_stems) == 0:
+            return None, []
         if len(selected_stems) == 1:
             return selected_stems[0], selected_stems
         return "All stems", selected_stems
@@ -263,6 +265,8 @@ class ProcessingWorker(BaseWorker):
 
     def _separate(self, song: SongRecord) -> None:
         stem_option, selected_stems = self._effective_stem_settings(song)
+        if stem_option is None:
+            raise AudioProcessingError("Select at least one stem before running Separate Stems.")
         self.update_song_status(song, SongStatus.SEPARATING.value)
         result = separate_song_stems(
             song,
@@ -338,6 +342,8 @@ class ProcessingWorker(BaseWorker):
             )
             song.stems_dir = str(result["stems_dir"])
             self.song_updated.emit(song)
+        elif selected_stems == []:
+            self.log.emit(f"Skipping stem separation for {song.file_name} because no stems are selected.")
 
         if target_bpm is not None and not self._is_reference_song_for_bpm(song):
             tempo_result = match_song_tempo(song, target_bpm, log_callback=self.log.emit)

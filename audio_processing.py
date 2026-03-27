@@ -656,14 +656,17 @@ def separate_song_stems(
     for stem_name, audio_data in stems.items():
         _save_audio(stem_dir / f"{stem_name}.wav", audio_data, sample_rate)
 
-    if selected_stems:
+    if selected_stems is not None:
         normalized_selection = [stem_name for stem_name in selected_stems if stem_name in STEM_OUTPUT_FILES]
     elif stem_option == "All stems":
         normalized_selection = list(STEM_OUTPUT_FILES)
     else:
         normalized_selection = [stem_option] if stem_option in STEM_OUTPUT_FILES else []
 
-    if not normalized_selection or set(normalized_selection) == set(STEM_OUTPUT_FILES):
+    if selected_stems is not None and not normalized_selection:
+        raise AudioProcessingError(f"No valid stem outputs were selected for {song.file_name}.")
+
+    if set(normalized_selection) == set(STEM_OUTPUT_FILES):
         _log(log_callback, f"Stem separation finished for {song.file_name}.")
         return {"stems_dir": str(stem_dir)}
 

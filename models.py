@@ -127,7 +127,11 @@ class SongRecord:
             "processing_override_enabled": has_song_processing,
             "processing_target_bpm": self.processing_target_bpm,
             "processing_target_key": self.processing_target_key,
-            "processing_selected_stems": list(self.processing_selected_stems) if self.processing_selected_stems else None,
+            "processing_selected_stems": (
+                list(self.processing_selected_stems)
+                if self.processing_selected_stems is not None
+                else None
+            ),
             "use_reference_bpm": self.use_reference_bpm,
             "use_reference_key": self.use_reference_key,
             "reference_song_path": self.reference_song_path,

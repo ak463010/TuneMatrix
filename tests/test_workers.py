@@ -22,6 +22,14 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
         self.assertEqual(worker._effective_target_key(song), "A Minor")
         self.assertEqual(worker._effective_stem_settings(song), ("All stems", ["Vocals", "Bass"]))
 
+    def test_empty_stem_selection_stays_empty(self) -> None:
+        song = SongRecord.from_path("song.wav")
+        song.processing_selected_stems = []
+
+        worker = ProcessingWorker([song], ProcessingOptions(), "process_all")
+
+        self.assertEqual(worker._effective_stem_settings(song), (None, []))
+
     def test_reference_song_is_used_when_explicit_targets_are_missing(self) -> None:
         song = SongRecord.from_path("song.wav")
         song.reference_song_path = "reference.wav"
