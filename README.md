@@ -6,6 +6,8 @@ The current codebase focuses on:
 
 - importing multiple songs
 - saving and loading project sessions
+- automatically analyzing newly imported songs
+- automatically re-analyzing songs when their BPM Range or Key Hint changes
 - analyzing duration, BPM, rough key, relative key, and compatible keys
 - separating stems with Demucs
 - matching tempo
@@ -23,6 +25,8 @@ What works now:
 - analysis populates detected key plus derived relative and compatible keys
 - analysis supports per-song `BPM Range` and `Key Hint` table columns, both defaulting to `Auto`
 - `BPM Range` keeps preset dropdown choices and includes an explicit `Enter BPM...` manual option for values such as `128` or `120-130`
+- newly imported songs are auto-analyzed in the background
+- changing a song's `BPM Range` or `Key Hint` triggers automatic re-analysis for that song
 - a global `Key Display` preference switches visible key names between `Auto`, `Prefer Sharps`, and `Prefer Flats`
 - the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, stem selection, and reference song
 - `Output Folder` remains a single global export setting and is persisted separately from per-song processing settings

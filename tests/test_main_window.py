@@ -12,6 +12,8 @@ from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
+from models import SongStatus
+from workers import AnalyzeWorker
 
 
 class MainWindowTests(unittest.TestCase):
@@ -36,7 +38,8 @@ class MainWindowTests(unittest.TestCase):
             path = Path(temp_dir.name) / name
             path.write_bytes(b"test")
             paths.append(path)
-        window.import_songs([str(path) for path in paths])
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(window, "start_worker", Mock()):
+            window.import_songs([str(path) for path in paths])
         return paths
 
     def _select_rows(self, window: MainWindow, rows: list[int]) -> None:
@@ -279,14 +282,78 @@ class MainWindowTests(unittest.TestCase):
         window.song_table.selectRow(1)
         self.assertEqual(window.output_dir_edit.text(), "D:/exports")
 
+    def test_import_auto_analyzes_new_songs(self) -> None:
+        window = self._build_window()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "auto_import.wav"
+            wav_path.write_bytes(b"test")
+
+            with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+                window, "start_worker", Mock()
+            ) as start_worker:
+                window.import_songs([str(wav_path)])
+
+        start_worker.assert_called_once()
+        worker, task_label = start_worker.call_args[0]
+        self.assertEqual(task_label, "Auto-analyzing imported songs")
+        self.assertIsInstance(worker, AnalyzeWorker)
+        self.assertEqual(len(worker.songs), 1)
+        self.assertEqual(worker.songs[0].file_name, "auto_import.wav")
+
+    def test_import_queues_auto_analysis_when_task_is_running(self) -> None:
+        window = self._build_window()
+        window.current_worker = Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wav_path = Path(temp_dir) / "queued_import.wav"
+            wav_path.write_bytes(b"test")
+
+            with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+                window, "start_worker", Mock()
+            ) as start_worker:
+                window.import_songs([str(wav_path)])
+
+        start_worker.assert_not_called()
+        self.assertEqual(window.songs[0].status, SongStatus.QUEUED_ANALYSIS.value)
+        self.assertIn(window.songs[0].file_path, window.pending_auto_analysis_paths)
+        window.current_worker = None
+
+    def test_bpm_range_change_triggers_auto_reanalysis(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["bpm_reanalyze.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
+
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "start_worker", Mock()
+        ) as start_worker:
+            bpm_range_combo.setCurrentIndex(bpm_range_combo.findText("120 - 140 BPM"))
+
+        start_worker.assert_called_once()
+        self.assertEqual(start_worker.call_args[0][1], "Auto-analyzing updated songs")
+
+    def test_key_hint_change_triggers_auto_reanalysis(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["key_reanalyze.wav"])
+        key_hint_combo = window._table_combo_at(0, 3)
+
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "start_worker", Mock()
+        ) as start_worker:
+            key_hint_combo.setCurrentIndex(key_hint_combo.findData("C Major"))
+
+        start_worker.assert_called_once()
+        self.assertEqual(start_worker.call_args[0][1], "Auto-analyzing updated songs")
+
     def test_import_songs_adds_one_row_and_skips_duplicate(self) -> None:
         window = self._build_window()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             wav_path = Path(temp_dir) / "demo.wav"
             wav_path.write_bytes(b"test")
-            window.import_songs([str(wav_path)])
-            window.import_songs([str(wav_path)])
+            with patch("main_window.action_runtime_issues", return_value=[]), patch.object(window, "start_worker", Mock()):
+                window.import_songs([str(wav_path)])
+                window.import_songs([str(wav_path)])
 
         self.assertEqual(len(window.songs), 1)
         self.assertEqual(window.song_table.rowCount(), 1)
@@ -498,7 +565,9 @@ class MainWindowTests(unittest.TestCase):
         bpm_range_combo = window._table_combo_at(0, 2)
 
         manual_index = next(index for index in range(bpm_range_combo.count()) if bpm_range_combo.itemText(index) == "Enter BPM...")
-        with patch("main_window.QInputDialog.getText", return_value=("128", True)):
+        with patch("main_window.QInputDialog.getText", return_value=("128", True)), patch(
+            "main_window.action_runtime_issues", return_value=[]
+        ), patch.object(window, "start_worker", Mock()):
             bpm_range_combo.setCurrentIndex(manual_index)
 
         self.assertEqual(window.songs[0].bpm_range_label, "128")

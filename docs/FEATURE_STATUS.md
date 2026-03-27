@@ -26,6 +26,8 @@ This file describes the current implementation status against the requested feat
 
 ### Analysis
 
+- newly imported songs are auto-analyzed in the background
+- changing a song's `BPM Range` or `Key Hint` queues automatic re-analysis for that song
 - duration detection with `librosa`
 - BPM estimation with `librosa`
 - optional per-song BPM-range hint to reduce half-time/double-time BPM ambiguity

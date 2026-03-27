@@ -70,6 +70,12 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 3. duration, BPM, rough key, relative key, and compatible keys are written back to the `SongRecord`
 4. UI updates the table row
 
+`MainWindow` now also has an automatic analysis queue:
+
+- newly imported songs start analysis automatically when the app is idle
+- if another task is running, those songs move to `Queued for analysis`
+- changing a song's `BPM Range` or `Key Hint` also queues re-analysis for that specific song
+
 ### Separate Stems
 
 1. `MainWindow` creates `ProcessingWorker` with action `separate`

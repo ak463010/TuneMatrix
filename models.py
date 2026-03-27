@@ -71,6 +71,7 @@ BPM_RANGE_MANUAL_LABEL = "Enter BPM..."
 class SongStatus(str, Enum):
     IMPORTED = "Imported"
     READY = "Ready"
+    QUEUED_ANALYSIS = "Queued for analysis"
     ANALYZING = "Analyzing"
     ANALYZED = "Analyzed"
     SEPARATING = "Separating stems"

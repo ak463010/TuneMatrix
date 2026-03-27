@@ -254,6 +254,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.songs: list[SongRecord] = []
+        self.pending_auto_analysis_paths: list[str] = []
         self.current_thread: Optional[QThread] = None
         self.current_worker = None
         self.task_cancel_requested = False
@@ -1194,16 +1195,19 @@ class MainWindow(QMainWindow):
             combo.blockSignals(True)
             self._set_song_bpm_range_combo_value(combo, song.bpm_range_label)
             combo.blockSignals(False)
+            self._schedule_auto_analysis([song], "hint change")
             return
 
         selected_text = str(combo.currentText() or BPM_RANGE_DEFAULT_LABEL).strip() or BPM_RANGE_DEFAULT_LABEL
         song.bpm_range_label = selected_text
+        self._schedule_auto_analysis([song], "hint change")
 
     def _on_song_key_hint_changed(self, file_path: str, key_hint: object) -> None:
         song = self._song_for_path(file_path)
         if song is None:
             return
         song.analysis_key_hint = str(key_hint or "").strip() or None
+        self._schedule_auto_analysis([song], "hint change")
 
     def _display_stem_list(self, stems: Optional[list[str]]) -> str:
         if not stems or len(stems) == len(self.stem_checkboxes):
@@ -1690,9 +1694,6 @@ class MainWindow(QMainWindow):
             self.show_error(f"Could not open the project:\n\n{exc}")
 
     def import_songs(self, paths: Optional[list[str]] = None) -> None:
-        if not self._can_modify_project("importing songs"):
-            return
-
         if not isinstance(paths, list):
             selected_files, _ = QFileDialog.getOpenFileNames(
                 self,
@@ -1707,6 +1708,7 @@ class MainWindow(QMainWindow):
 
         existing_paths = {song.file_path for song in self.songs}
         added_count = 0
+        added_songs: list[SongRecord] = []
         for raw_path in paths:
             resolved = str(Path(raw_path).resolve())
             valid, message = validate_audio_file(resolved)
@@ -1720,17 +1722,16 @@ class MainWindow(QMainWindow):
             song = SongRecord.from_path(resolved)
             self.songs.append(song)
             self._append_song_row(song)
+            added_songs.append(song)
             existing_paths.add(resolved)
             added_count += 1
             self.append_log(f"Imported {song.file_name}")
-            file_issues = action_runtime_issues("analyze", [resolved])
-            for issue in dict.fromkeys(file_issues):
-                self.append_log(f"{song.file_name}: {issue}")
 
         if added_count:
             self._update_song_table_header_visibility()
             self.refresh_reference_combo()
             self._load_processing_editor_from_selection()
+            self._schedule_auto_analysis(added_songs, "import")
 
     def remove_selected_songs(self) -> None:
         if not self._can_modify_project("removing songs"):
@@ -1808,6 +1809,75 @@ class MainWindow(QMainWindow):
                 return "Each selected song needs a Target Key or Reference Song."
 
         return None
+
+    def _auto_analysis_candidates(self, songs: list[SongRecord]) -> list[SongRecord]:
+        candidates: list[SongRecord] = []
+        for song in songs:
+            issues = list(dict.fromkeys(action_runtime_issues("analyze", [song.file_path])))
+            if issues:
+                for issue in issues:
+                    self.append_log(f"{song.file_name}: {issue}")
+                continue
+            candidates.append(song)
+        return candidates
+
+    def _queue_auto_analysis(self, songs: list[SongRecord], reason: str) -> None:
+        queued_count = 0
+        for song in songs:
+            if song.file_path in self.pending_auto_analysis_paths:
+                continue
+            self.pending_auto_analysis_paths.append(song.file_path)
+            if song.status != SongStatus.ANALYZING.value:
+                song.status = SongStatus.QUEUED_ANALYSIS.value
+                song.last_error = None
+                row = self.find_song_row(song.file_path)
+                if row is not None:
+                    self._populate_song_row(row, song)
+            queued_count += 1
+
+        if queued_count:
+            self.append_log(
+                f"Queued {queued_count} song(s) for automatic analysis after the current task ({reason})."
+            )
+
+    def _dequeue_auto_analysis_songs(self) -> list[SongRecord]:
+        if not self.pending_auto_analysis_paths:
+            return []
+
+        queued_paths = list(dict.fromkeys(self.pending_auto_analysis_paths))
+        self.pending_auto_analysis_paths.clear()
+        songs: list[SongRecord] = []
+        for file_path in queued_paths:
+            song = self._song_for_path(file_path)
+            if song is not None:
+                songs.append(song)
+        return songs
+
+    def _start_auto_analysis(self, songs: list[SongRecord], reason: str) -> bool:
+        if self.current_worker is not None:
+            return False
+
+        candidates = self._auto_analysis_candidates(songs)
+        if not candidates:
+            return False
+
+        task_label = "Auto-analyzing imported songs" if reason == "import" else "Auto-analyzing updated songs"
+        worker = AnalyzeWorker(candidates)
+        self.start_worker(worker, task_label)
+        return True
+
+    def _schedule_auto_analysis(self, songs: list[SongRecord], reason: str) -> None:
+        unique_songs = list(dict.fromkeys(song.file_path for song in songs if song is not None))
+        resolved_songs = [self._song_for_path(path) for path in unique_songs]
+        candidates = [song for song in resolved_songs if song is not None]
+        if not candidates:
+            return
+
+        if self.current_worker is None:
+            self._start_auto_analysis(candidates, reason)
+            return
+
+        self._queue_auto_analysis(candidates, reason)
 
     def start_analyze_task(self) -> None:
         if not self.songs:
@@ -1926,6 +1996,9 @@ class MainWindow(QMainWindow):
         if not self.task_cancel_requested:
             self.progress_bar.setValue(100 if self.songs else 0)
         self.append_log("Task canceled." if self.task_cancel_requested else "Task finished.")
+        queued_songs = self._dequeue_auto_analysis_songs()
+        if queued_songs:
+            self._start_auto_analysis(queued_songs, "queue")
 
     def changeEvent(self, event) -> None:  # type: ignore[override]
         if hasattr(self, "title_bar"):
@@ -1933,21 +2006,22 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def set_task_running(self, running: bool) -> None:
-        always_available_controls = [
+        locked_controls = [
             self.open_project_action,
             self.save_project_action,
-            self.import_button,
             self.remove_button,
             self.clear_button,
             self.output_dir_edit,
             self.output_browse_button,
-            self.import_action,
             self.remove_action,
             self.clear_action,
         ]
 
-        for control in always_available_controls:
+        for control in locked_controls:
             control.setEnabled(not running)
+
+        self.import_button.setEnabled(True)
+        self.import_action.setEnabled(True)
 
         self.song_table.setEnabled(not running)
         self.cancel_button.setEnabled(running)
