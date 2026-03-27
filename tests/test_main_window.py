@@ -8,7 +8,8 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtCore import QPoint, QItemSelectionModel, Qt
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
@@ -142,6 +143,34 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(key_hint_combo.focusPolicy(), Qt.FocusPolicy.NoFocus)
         self.assertTrue(bpm_range_combo.testAttribute(Qt.WidgetAttribute.WA_NoMousePropagation))
         self.assertTrue(key_hint_combo.testAttribute(Qt.WidgetAttribute.WA_NoMousePropagation))
+
+    def test_combo_boxes_ignore_mouse_wheel_changes(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["wheel.wav"])
+        window.song_table.selectRow(0)
+
+        bpm_range_combo = window._table_combo_at(0, 2)
+        key_hint_combo = window._table_combo_at(0, 3)
+        target_key_combo = window.target_key_combo
+
+        bpm_range_combo.setCurrentIndex(0)
+        key_hint_combo.setCurrentIndex(0)
+        target_key_combo.setCurrentIndex(0)
+
+        for combo in [bpm_range_combo, key_hint_combo, target_key_combo]:
+            before = combo.currentIndex()
+            event = QWheelEvent(
+                combo.rect().center(),
+                combo.mapToGlobal(combo.rect().center()),
+                QPoint(0, 0),
+                QPoint(0, 120),
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+                Qt.ScrollPhase.ScrollUpdate,
+                False,
+            )
+            QApplication.sendEvent(combo, event)
+            self.assertEqual(combo.currentIndex(), before)
 
     def test_build_processing_options_only_uses_global_output_dir(self) -> None:
         window = self._build_window()

@@ -162,6 +162,11 @@ class MixedStateCheckBox(QCheckBox):
         self.setCheckState(Qt.CheckState.Checked)
 
 
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+
+
 class WindowTitleBar(QFrame):
     def __init__(self, window: "MainWindow") -> None:
         super().__init__(window)
@@ -561,14 +566,14 @@ class MainWindow(QMainWindow):
         self.target_bpm_edit.setFixedHeight(28)
         self.target_bpm_edit.editingFinished.connect(self._apply_target_bpm_to_selection)
 
-        self.target_key_combo = QComboBox()
+        self.target_key_combo = NoWheelComboBox()
         self.target_key_combo.addItem("Unchanged", None)
         for key_name in KEY_OPTIONS:
             self.target_key_combo.addItem(format_key(key_name, self.key_display_preference), key_name)
         self.target_key_combo.setFixedHeight(28)
         self.target_key_combo.currentIndexChanged.connect(self._apply_target_key_to_selection)
 
-        self.reference_combo = QComboBox()
+        self.reference_combo = NoWheelComboBox()
         self.reference_combo.addItem("None", None)
         self.reference_combo.setFixedHeight(28)
         self.reference_combo.currentIndexChanged.connect(self._update_reference_mode_ui)
@@ -1139,7 +1144,7 @@ class MainWindow(QMainWindow):
         return None
 
     def _create_song_bpm_range_combo(self, song: SongRecord) -> QComboBox:
-        combo = QComboBox()
+        combo = NoWheelComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
         combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1159,7 +1164,7 @@ class MainWindow(QMainWindow):
         return combo
 
     def _create_song_key_hint_combo(self, song: SongRecord) -> QComboBox:
-        combo = QComboBox()
+        combo = NoWheelComboBox()
         combo.setObjectName("tableCombo")
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
         combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
