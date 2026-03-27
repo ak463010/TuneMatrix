@@ -10,7 +10,7 @@ The current codebase focuses on:
 - separating stems with Demucs
 - matching tempo
 - matching key tonic with pitch shifting
-- exporting processed outputs without changing the original files
+- automatically exporting processed outputs to the chosen output folder without changing the original files
 - keeping the UI responsive with worker threads
 
 ## Project Status
@@ -26,11 +26,18 @@ What works now:
 - a global `Key Display` preference switches visible key names between `Auto`, `Prefer Sharps`, and `Prefer Flats`
 - the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, stem selection, and reference song
 - `Output Folder` remains a single global export setting and is persisted separately from per-song processing settings
+- exported processed filenames that include key names follow the current global key-display preference
 - worker-threaded analyze, tempo match, key shift, and export flows
+- separate stems, match tempo, match key, and process all now auto-export on success
+- manual export remains available from the `File` menu as `Export Cached Results`
 - project save/load with song state, global output settings, and key-display preference persisted to JSON
 - dependency-aware UI gating for unsupported actions
 - startup diagnostics limited to the dependencies the current runtime path actually uses
 - local test suite and CI workflow
+
+Planned later:
+
+- user-defined export folder and export filename templates with variable placeholders
 
 What still depends on external tools:
 

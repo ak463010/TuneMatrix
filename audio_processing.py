@@ -55,6 +55,7 @@ from utils import (
     ensure_directory,
     find_executable,
     format_dependency_status,
+    key_filename_fragment,
     make_song_cache_dir,
     safe_stem,
 )
@@ -683,13 +684,31 @@ def separate_song_stems(
     return {"stems_dir": str(filtered_dir)}
 
 
-def export_song_artifacts(song: SongRecord, output_dir: str) -> dict[str, object]:
+def _export_processed_filename(song: SongRecord, key_display_preference: Optional[str] = None) -> Optional[str]:
+    if not song.processed_path:
+        return None
+
+    source_path = Path(song.processed_path)
+    file_name = source_path.name
+    if "_key_" not in source_path.stem:
+        return file_name
+
+    resolved_key = song.musical_key or song.processing_target_key
+    if not resolved_key:
+        return file_name
+
+    suffix = f"key_{key_filename_fragment(resolved_key, key_display_preference)}"
+    return build_output_filename(song.file_name, suffix, source_path.suffix or ".wav")
+
+
+def export_song_artifacts(song: SongRecord, output_dir: str, key_display_preference: Optional[str] = None) -> dict[str, object]:
     export_root = ensure_directory(output_dir)
     exported_paths: list[str] = []
     copied_original_only = False
 
     if song.processed_path and Path(song.processed_path).exists():
-        exported_paths.append(copy_file_to_directory(song.processed_path, export_root))
+        export_name = _export_processed_filename(song, key_display_preference)
+        exported_paths.append(copy_file_to_directory(song.processed_path, export_root, name=export_name))
 
     if song.stems_dir and Path(song.stems_dir).exists():
         folder_name = f"{safe_stem(Path(song.file_name).stem)}_stems"

@@ -11,6 +11,7 @@ import soundfile as sf
 import torch as th
 
 from audio_processing import (
+    _export_processed_filename,
     action_base_requirement_message,
     action_runtime_issues,
     analyze_audio,
@@ -224,6 +225,34 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertTrue(result["copied_original_only"])
             self.assertEqual(len(result["paths"]), 1)
             self.assertTrue(Path(result["paths"][0]).exists())
+
+    def test_export_processed_filename_uses_display_preference_for_key_suffix(self) -> None:
+        song = SongRecord.from_path("demo.wav")
+        song.processed_path = str(Path("cache") / "demo_key_D_Minor.wav")
+        song.musical_key = "D# Minor"
+
+        self.assertEqual(_export_processed_filename(song), "demo_key_Dsharp_Minor.wav")
+        self.assertEqual(
+            _export_processed_filename(song, "prefer_flats"),
+            "demo_key_Eb_Minor.wav",
+        )
+
+    def test_export_song_artifacts_renames_key_based_exports_using_display_preference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            processed_path = temp_root / "demo_key_D_Minor.wav"
+            export_dir = temp_root / "exports"
+            create_test_wave(processed_path)
+
+            song = SongRecord.from_path(str(temp_root / "demo.wav"))
+            song.processed_path = str(processed_path)
+            song.musical_key = "D# Minor"
+
+            result = export_song_artifacts(song, str(export_dir), key_display_preference="prefer_flats")
+
+            exported_path = Path(result["paths"][0])
+            self.assertEqual(exported_path.name, "demo_key_Eb_Minor.wav")
+            self.assertTrue(exported_path.exists())
 
 
 if __name__ == "__main__":

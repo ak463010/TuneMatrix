@@ -16,6 +16,7 @@ from utils import (
     format_duration,
     format_key,
     format_key_with_alias,
+    key_filename_fragment,
     safe_stem,
     unique_path,
     validate_audio_file,
@@ -50,6 +51,8 @@ class UtilsTests(unittest.TestCase):
         self.assertEqual(format_key_with_alias("D# Minor"), "D# Minor (E♭ Minor)")
         self.assertEqual(format_key_with_alias("D# Minor", KEY_DISPLAY_PREFER_FLATS), "E♭ Minor (D# Minor)")
         self.assertEqual(format_key_with_alias("E Minor"), "E Minor")
+        self.assertEqual(key_filename_fragment("D# Minor"), "Dsharp_Minor")
+        self.assertEqual(key_filename_fragment("D# Minor", KEY_DISPLAY_PREFER_FLATS), "Eb_Minor")
 
     def test_validate_audio_file_accepts_supported_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

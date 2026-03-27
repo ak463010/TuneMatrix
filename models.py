@@ -185,6 +185,7 @@ class ProcessingOptions:
     use_reference_key: bool = False
     reference_song_path: Optional[str] = None
     output_dir: Optional[str] = None
+    key_display_preference: Optional[str] = None
 
 
 def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:

@@ -171,6 +171,19 @@ def format_camelot(key_name: Optional[str]) -> str:
     return camelot_for_key(key_name) or "N/A"
 
 
+def key_filename_fragment(key_name: Optional[str], preference: Optional[str] = None) -> str:
+    displayed = display_key_name(key_name, preference)
+    if not displayed:
+        return "unknown_key"
+
+    normalized = (
+        displayed.replace("\u266d", "b")
+        .replace("#", "sharp")
+        .replace(" ", "_")
+    )
+    return safe_stem(normalized)
+
+
 def safe_stem(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
     return cleaned.strip("._") or "item"

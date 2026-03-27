@@ -22,6 +22,7 @@ This file describes the current implementation status against the requested feat
 - clear list
 - table columns for file name, full path, per-song BPM range hint, per-song key hint, duration, BPM, key, relative key, compatible keys, and status
 - global key-display preference for `Auto`, `Prefer Sharps`, and `Prefer Flats`
+- exported processed filenames that include key names respect the global key-display preference
 
 ### Analysis
 
@@ -43,7 +44,8 @@ This file describes the current implementation status against the requested feat
 - per-song target BPM, target key, stem selection, and reference-song selection through the right sidebar
 - global output-folder selection
 - process-all worker pipeline
-- export processed files and stems while keeping originals unchanged
+- separate stems, match tempo, match key, and process-all actions auto-export processed files and stems to the selected output folder
+- manual fallback export is still available from the `File` menu as `Export Cached Results`
 
 ### Reliability and Tooling
 
@@ -90,10 +92,13 @@ So support is conditional rather than fully self-contained.
 - packaged desktop installer
 - integration tests against real Demucs output
 - exact musical reharmonization or scale-aware mode conversion
+- user-defined export folder templates
+- user-defined export filename templates with placeholder variables
 
 ## Recommended Next Steps
 
 1. Add an in-app diagnostics dialog that shows install commands for missing dependencies.
 2. Add worker-level tests for cancel and multi-song flows.
 3. Package the app for Windows once the runtime dependencies are stable.
-4. Revisit key matching if exact harmonic mode conversion is a hard requirement.
+4. Add configurable export naming templates with preview and validation.
+5. Revisit key matching if exact harmonic mode conversion is a hard requirement.

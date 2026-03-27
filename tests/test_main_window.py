@@ -70,14 +70,14 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.remove_button.isEnabled())
         self.assertFalse(window.analyze_button.isEnabled())
-        self.assertFalse(window.export_button.isEnabled())
+        self.assertFalse(window.export_action.isEnabled())
         self.assertEqual(window.analyze_button.toolTip(), "Select at least one song.")
 
         window.song_table.selectRow(0)
 
         self.assertTrue(window.remove_button.isEnabled())
         self.assertTrue(window.analyze_button.isEnabled())
-        self.assertTrue(window.export_button.isEnabled())
+        self.assertTrue(window.export_action.isEnabled())
 
     def test_table_header_is_hidden_when_empty_and_visible_with_songs(self) -> None:
         window = self._build_window()
@@ -353,6 +353,23 @@ class MainWindowTests(unittest.TestCase):
 
         show_warning.assert_not_called()
         start_worker.assert_called_once()
+
+    def test_processing_requires_output_folder_for_auto_export(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["auto_export_required.wav"])
+        window.song_table.selectRow(0)
+        window.songs[0].processing_target_bpm = 128.0
+        window.output_dir_edit.clear()
+
+        with patch("main_window.action_runtime_issues", return_value=[]), patch.object(
+            window, "start_worker", Mock()
+        ) as start_worker, patch.object(window, "show_warning", Mock()) as show_warning:
+            window.start_processing_task("match_tempo")
+
+        start_worker.assert_not_called()
+        show_warning.assert_called_once_with(
+            "Choose an output folder before processing. TuneMatrix exports processed results automatically."
+        )
 
     def test_match_key_requires_song_bound_target_or_reference(self) -> None:
         window = self._build_window()

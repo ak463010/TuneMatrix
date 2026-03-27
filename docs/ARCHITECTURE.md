@@ -76,6 +76,7 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 2. worker calls `separate_song_stems`
 3. `audio_processing.py` loads Demucs in-process and runs the model directly
 4. generated stems are written into a cache folder for the song
+5. successful results are then auto-exported to the chosen output folder
 
 ### Match Tempo and Match Key
 
@@ -83,11 +84,13 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 2. processing uses the original file or latest processed file
 3. new audio is written to the cache area
 4. `SongRecord.processed_path` is updated
+5. successful results are then auto-exported to the chosen output folder
 
 ### Export
 
-1. export copies the processed file and stem directory if present
-2. if no processed artifacts exist, the original file is copied instead
+1. primary processing actions export automatically after a successful run
+2. the manual `File > Export Cached Results` action copies the processed file and stem directory if present
+3. if no processed artifacts exist for the manual export action, the original file is copied instead
 
 ## Caching and Output
 

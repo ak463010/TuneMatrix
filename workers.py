@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QObject, Signal, Slot
@@ -165,12 +166,16 @@ class ProcessingWorker(BaseWorker):
             try:
                 if self.action == "separate":
                     self._separate(song)
+                    self._auto_export(song)
                 elif self.action == "match_tempo":
                     self._match_tempo(song, song_target_bpm)
+                    self._auto_export(song)
                 elif self.action == "match_key":
                     self._match_key(song, song_target_key)
+                    self._auto_export(song)
                 elif self.action == "process_all":
                     self._process_all(song, song_target_bpm, song_target_key)
+                    self._auto_export(song)
                 elif self.action == "export":
                     self._export(song)
                 else:
@@ -359,12 +364,35 @@ class ProcessingWorker(BaseWorker):
         self.song_updated.emit(song)
         self.log.emit(f"Full pipeline finished for {song.file_name}.")
 
+    def _has_exportable_artifacts(self, song: SongRecord) -> bool:
+        return bool(
+            (song.processed_path and Path(song.processed_path).exists())
+            or (song.stems_dir and Path(song.stems_dir).exists())
+        )
+
+    def _auto_export(self, song: SongRecord) -> None:
+        if not self.options.output_dir:
+            raise AudioProcessingError("Choose an export folder before processing.")
+
+        if not self._has_exportable_artifacts(song):
+            return
+
+        result = export_song_artifacts(song, self.options.output_dir, self.options.key_display_preference)
+        song.status = SongStatus.EXPORTED.value
+        song.last_error = None
+        self.song_updated.emit(song)
+
+        if result["copied_original_only"]:
+            self.log.emit(f"Auto-export skipped for {song.file_name}: no processed artifacts were available.")
+        else:
+            self.log.emit(f"Auto-exported results for {song.file_name}.")
+
     def _export(self, song: SongRecord) -> None:
         if not self.options.output_dir:
-            raise AudioProcessingError("Choose an export folder before exporting.")
+            raise AudioProcessingError("Choose an export folder before exporting cached results.")
 
         self.update_song_status(song, SongStatus.PROCESSING.value)
-        result = export_song_artifacts(song, self.options.output_dir)
+        result = export_song_artifacts(song, self.options.output_dir, self.options.key_display_preference)
         song.status = SongStatus.EXPORTED.value
         song.last_error = None
         self.song_updated.emit(song)

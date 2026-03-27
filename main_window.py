@@ -302,7 +302,7 @@ class MainWindow(QMainWindow):
         self.process_all_action = QAction("Process All", self)
         self.process_all_action.triggered.connect(lambda: self.start_processing_task("process_all"))
 
-        self.export_action = QAction("Export", self)
+        self.export_action = QAction("Export Cached Results", self)
         self.export_action.triggered.connect(lambda: self.start_processing_task("export"))
 
         self.cancel_action = QAction("Cancel Current Task", self)
@@ -628,7 +628,6 @@ class MainWindow(QMainWindow):
         self.match_tempo_button = QPushButton("Match Tempo")
         self.match_key_button = QPushButton("Match Key")
         self.process_all_button = QPushButton("Process All")
-        self.export_button = QPushButton("Export")
         self.cancel_button = QPushButton("Cancel Task")
         self.cancel_button.setEnabled(False)
 
@@ -638,7 +637,6 @@ class MainWindow(QMainWindow):
             (self.match_tempo_button, self._icon("tempo")),
             (self.match_key_button, self._icon("key")),
             (self.process_all_button, self._icon("process")),
-            (self.export_button, self._icon("export")),
         ]
         button_widths = {
             self.analyze_button: 114,
@@ -646,7 +644,6 @@ class MainWindow(QMainWindow):
             self.match_tempo_button: 126,
             self.match_key_button: 114,
             self.process_all_button: 116,
-            self.export_button: 92,
             self.cancel_button: 112,
         }
 
@@ -674,7 +671,6 @@ class MainWindow(QMainWindow):
         self.match_tempo_button.clicked.connect(lambda: self.start_processing_task("match_tempo"))
         self.match_key_button.clicked.connect(lambda: self.start_processing_task("match_key"))
         self.process_all_button.clicked.connect(lambda: self.start_processing_task("process_all"))
-        self.export_button.clicked.connect(lambda: self.start_processing_task("export"))
         self.cancel_button.clicked.connect(self.cancel_current_task)
 
         return panel
@@ -972,7 +968,7 @@ class MainWindow(QMainWindow):
             "match_tempo": [self.match_tempo_button, self.match_tempo_action],
             "match_key": [self.match_key_button, self.match_key_action],
             "process_all": [self.process_all_button, self.process_all_action],
-            "export": [self.export_button, self.export_action],
+            "export": [self.export_action],
         }
 
     def _collect_base_action_messages(self) -> dict[str, str]:
@@ -1861,8 +1857,12 @@ class MainWindow(QMainWindow):
 
         options = self.build_processing_options()
 
+        if action in {"separate", "match_tempo", "match_key", "process_all"} and not options.output_dir:
+            self.show_warning("Choose an output folder before processing. TuneMatrix exports processed results automatically.")
+            return
+
         if action == "export" and not options.output_dir:
-            self.show_warning("Choose an export folder before exporting.")
+            self.show_warning("Choose an export folder before exporting cached results.")
             return
 
         worker = ProcessingWorker(songs, options, action, all_songs=self.songs)
@@ -1871,6 +1871,7 @@ class MainWindow(QMainWindow):
     def build_processing_options(self) -> ProcessingOptions:
         return ProcessingOptions(
             output_dir=self.output_dir_edit.text().strip() or None,
+            key_display_preference=self.key_display_preference,
         )
 
     def start_worker(self, worker, task_label: str) -> None:
