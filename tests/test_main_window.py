@@ -317,6 +317,7 @@ class MainWindowTests(unittest.TestCase):
         start_worker.assert_not_called()
         self.assertEqual(window.songs[0].status, SongStatus.QUEUED_ANALYSIS.value)
         self.assertIn(window.songs[0].file_path, window.pending_auto_analysis_paths)
+        self.assertFalse(window.song_table.item(0, 10).icon().isNull())
         window.current_worker = None
 
     def test_bpm_range_change_triggers_auto_reanalysis(self) -> None:

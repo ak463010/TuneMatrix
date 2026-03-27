@@ -2173,6 +2173,7 @@ class MainWindow(QMainWindow):
         if status in {SongStatus.READY.value, SongStatus.ANALYZED.value, SongStatus.EXPORTED.value}:
             return QColor("#7fd78a")
         if status in {
+            SongStatus.QUEUED_ANALYSIS.value,
             SongStatus.ANALYZING.value,
             SongStatus.SEPARATING.value,
             SongStatus.MATCHING_TEMPO.value,
@@ -2188,6 +2189,7 @@ class MainWindow(QMainWindow):
         if status in {SongStatus.READY.value, SongStatus.ANALYZED.value, SongStatus.EXPORTED.value}:
             return self._icon("status_ready")
         if status in {
+            SongStatus.QUEUED_ANALYSIS.value,
             SongStatus.ANALYZING.value,
             SongStatus.SEPARATING.value,
             SongStatus.MATCHING_TEMPO.value,

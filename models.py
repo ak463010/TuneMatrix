@@ -69,7 +69,6 @@ BPM_RANGE_MANUAL_LABEL = "Enter BPM..."
 
 
 class SongStatus(str, Enum):
-    IMPORTED = "Imported"
     READY = "Ready"
     QUEUED_ANALYSIS = "Queued for analysis"
     ANALYZING = "Analyzing"
@@ -101,7 +100,7 @@ class SongRecord:
     musical_key: Optional[str] = None
     relative_key: Optional[str] = None
     compatible_keys: Optional[list[str]] = None
-    status: str = SongStatus.IMPORTED.value
+    status: str = SongStatus.QUEUED_ANALYSIS.value
     stems_dir: Optional[str] = None
     processed_path: Optional[str] = None
     last_error: Optional[str] = None
@@ -148,6 +147,9 @@ class SongRecord:
         file_path = str(data.get("file_path", "")).strip()
         file_name = str(data.get("file_name", "")).strip() or Path(file_path).name
         legacy_match_to_reference = bool(data.get("match_to_reference", False))
+        status = str(data.get("status") or SongStatus.QUEUED_ANALYSIS.value)
+        if status == "Imported":
+            status = SongStatus.QUEUED_ANALYSIS.value
         return cls(
             file_path=file_path,
             file_name=file_name,
@@ -169,7 +171,7 @@ class SongRecord:
             musical_key=data.get("musical_key"),
             relative_key=data.get("relative_key"),
             compatible_keys=list(data.get("compatible_keys") or []),
-            status=str(data.get("status") or SongStatus.IMPORTED.value),
+            status=status,
             stems_dir=data.get("stems_dir"),
             processed_path=data.get("processed_path"),
             last_error=data.get("last_error"),
