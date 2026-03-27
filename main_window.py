@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QSize, QThread, Qt, QTime, Signal
-from PySide6.QtGui import QAction, QColor, QIcon, QPainter
+from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -46,15 +46,18 @@ from models import (
     TABLE_HEADERS,
 )
 from utils import (
+    KEY_DISPLAY_AUTO,
+    KEY_DISPLAY_PREFERENCE_OPTIONS,
+    alternate_key_notation,
     camelot_for_key,
     default_export_dir,
-    enharmonic_key_alias,
     format_bpm,
     format_camelot,
     format_duration,
     format_key,
     format_key_list,
     is_supported_audio_file,
+    normalize_key_display_preference,
     validate_audio_file,
 )
 from workers import AnalyzeWorker, ProcessingWorker
@@ -256,6 +259,7 @@ class MainWindow(QMainWindow):
         self.task_cancel_requested = False
         self.action_dependency_messages: dict[str, str] = {}
         self._sidebar_binding_in_progress = False
+        self.key_display_preference = KEY_DISPLAY_AUTO
 
         self.setWindowTitle("TuneMatrix")
         self.resize(1400, 900)
@@ -335,12 +339,30 @@ class MainWindow(QMainWindow):
         self.help_menu = QMenu("Help", self)
         self.help_menu.addAction(self.about_action)
 
+        self.key_display_menu = QMenu("Key Display", self)
+        self.key_display_action_group = QActionGroup(self)
+        self.key_display_action_group.setExclusive(True)
+        self.key_display_actions: dict[str, QAction] = {}
+        for label, preference in KEY_DISPLAY_PREFERENCE_OPTIONS:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda checked=False, value=preference: self.set_key_display_preference(value)
+            )
+            self.key_display_action_group.addAction(action)
+            self.key_display_menu.addAction(action)
+            self.key_display_actions[preference] = action
+
         menu_bar = self.menuBar()
         menu_bar.clear()
         menu_bar.addMenu(self.file_menu)
         menu_bar.addMenu(self.edit_menu)
         menu_bar.addMenu(self.tools_menu)
         menu_bar.addMenu(self.help_menu)
+
+        self.tools_menu.addSeparator()
+        self.tools_menu.addMenu(self.key_display_menu)
+        self._sync_key_display_menu_actions()
 
     def _build_ui(self) -> None:
         central_widget = QWidget()
@@ -541,7 +563,7 @@ class MainWindow(QMainWindow):
         self.target_key_combo = QComboBox()
         self.target_key_combo.addItem("Unchanged", None)
         for key_name in KEY_OPTIONS:
-            self.target_key_combo.addItem(key_name, key_name)
+            self.target_key_combo.addItem(format_key(key_name, self.key_display_preference), key_name)
         self.target_key_combo.setFixedHeight(28)
         self.target_key_combo.currentIndexChanged.connect(self._apply_target_key_to_selection)
 
@@ -1025,6 +1047,49 @@ class MainWindow(QMainWindow):
         index = combo.findData(value)
         combo.setCurrentIndex(index if index >= 0 else 0)
 
+    def _sync_key_display_menu_actions(self) -> None:
+        for preference, action in self.key_display_actions.items():
+            action.blockSignals(True)
+            action.setChecked(preference == self.key_display_preference)
+            action.blockSignals(False)
+
+    def _refresh_key_option_combo_labels(self, combo: QComboBox, none_label: str) -> None:
+        combo.blockSignals(True)
+        for index in range(combo.count()):
+            data = combo.itemData(index)
+            if data is None:
+                combo.setItemText(index, none_label)
+            elif data == "__mixed__":
+                combo.setItemText(index, "Mixed")
+            elif isinstance(data, str):
+                combo.setItemText(index, format_key(data, self.key_display_preference))
+        combo.blockSignals(False)
+
+    def set_key_display_preference(self, preference: str) -> None:
+        normalized_preference = normalize_key_display_preference(preference)
+        if normalized_preference == self.key_display_preference:
+            self._sync_key_display_menu_actions()
+            return
+
+        self.key_display_preference = normalized_preference
+        self._sync_key_display_menu_actions()
+        self._refresh_key_display_preference_ui()
+
+    def _refresh_key_display_preference_ui(self) -> None:
+        if hasattr(self, "target_key_combo"):
+            self._refresh_key_option_combo_labels(self.target_key_combo, "Unchanged")
+
+        if hasattr(self, "song_table"):
+            for row in range(self.song_table.rowCount()):
+                key_hint_combo = self._table_combo_at(row, 3)
+                if isinstance(key_hint_combo, QComboBox):
+                    self._refresh_key_option_combo_labels(key_hint_combo, "Auto")
+                if row < len(self.songs):
+                    self._populate_song_row(row, self.songs[row])
+
+        if hasattr(self, "reference_combo"):
+            self.refresh_reference_combo()
+
     def _set_combo_text(self, combo: QComboBox, value: object) -> None:
         text_value = str(value or "").strip()
         index = combo.findText(text_value)
@@ -1106,7 +1171,7 @@ class MainWindow(QMainWindow):
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.addItem("Auto", None)
         for key_name in KEY_OPTIONS:
-            combo.addItem(key_name, key_name)
+            combo.addItem(format_key(key_name, self.key_display_preference), key_name)
         self._set_combo_data(combo, song.analysis_key_hint)
         combo.currentIndexChanged.connect(
             lambda _index, path=song.file_path, widget=combo: self._on_song_key_hint_changed(path, widget.currentData())
@@ -1177,7 +1242,7 @@ class MainWindow(QMainWindow):
 
         stems_label = self._display_stem_list(song.processing_selected_stems)
         bpm_label = f"{song.processing_target_bpm:g}" if song.processing_target_bpm is not None else "Not set"
-        key_label = song.processing_target_key or "Unchanged"
+        key_label = format_key(song.processing_target_key, self.key_display_preference) if song.processing_target_key else "Unchanged"
         return (
             "Song processing\n"
             f"Reference Song: {self._song_reference_name(song.reference_song_path)}\n"
@@ -1473,6 +1538,7 @@ class MainWindow(QMainWindow):
             "songs": [song.to_dict() for song in self.songs],
             "ui": {
                 "output_dir": self.output_dir_edit.text().strip(),
+                "key_display_preference": self.key_display_preference,
             },
         }
 
@@ -1557,7 +1623,10 @@ class MainWindow(QMainWindow):
         else:
             self.output_dir_edit.setText(default_export_dir())
 
-        self.refresh_reference_combo()
+        self.key_display_preference = normalize_key_display_preference(ui_state.get("key_display_preference"))
+        self._sync_key_display_menu_actions()
+        self._refresh_key_display_preference_ui()
+
         self.progress_bar.setValue(0)
         self._load_processing_editor_from_selection()
         self._refresh_action_availability()
@@ -1891,7 +1960,11 @@ class MainWindow(QMainWindow):
         self.reference_combo.clear()
         self.reference_combo.addItem("None", None)
         for song in self.songs:
-            label = f"{song.file_name} | {format_bpm(song.bpm)} BPM | {format_key(song.musical_key)}"
+            label = (
+                f"{song.file_name} | "
+                f"{format_bpm(song.bpm)} BPM | "
+                f"{format_key(song.musical_key, self.key_display_preference)}"
+            )
             self.reference_combo.addItem(label, song.file_path)
         self.reference_combo.blockSignals(False)
         self._load_processing_editor_from_selection()
@@ -1935,10 +2008,10 @@ class MainWindow(QMainWindow):
             "",
             format_duration(song.duration),
             format_bpm(song.bpm),
-            format_key(song.musical_key),
+            format_key(song.musical_key, self.key_display_preference),
             format_camelot(song.musical_key),
-            format_key(song.relative_key),
-            format_key_list(song.compatible_keys),
+            format_key(song.relative_key, self.key_display_preference),
+            format_key_list(song.compatible_keys, self.key_display_preference),
             song.status,
         ]
         status_column = len(values) - 1
@@ -1949,9 +2022,10 @@ class MainWindow(QMainWindow):
         override_tooltip = self._song_processing_override_tooltip(song)
         compatible_camelot = [
             (
-                f"{compatible_key} ({camelot_for_key(compatible_key) or 'N/A'}, {enharmonic_key_alias(compatible_key)})"
-                if enharmonic_key_alias(compatible_key)
-                else f"{compatible_key} ({camelot_for_key(compatible_key) or 'N/A'})"
+                f"{format_key(compatible_key, self.key_display_preference)} "
+                f"({camelot_for_key(compatible_key) or 'N/A'}, {alternate_key_notation(compatible_key, self.key_display_preference)})"
+                if alternate_key_notation(compatible_key, self.key_display_preference)
+                else f"{format_key(compatible_key, self.key_display_preference)} ({camelot_for_key(compatible_key) or 'N/A'})"
             )
             for compatible_key in (song.compatible_keys or [])
         ]
@@ -1976,34 +2050,34 @@ class MainWindow(QMainWindow):
             else:
                 item.setForeground(QColor("#eef3fb"))
             if column == key_column:
-                key_alias = enharmonic_key_alias(song.musical_key)
-                relative_alias = enharmonic_key_alias(song.relative_key)
+                key_alias = alternate_key_notation(song.musical_key, self.key_display_preference)
+                relative_alias = alternate_key_notation(song.relative_key, self.key_display_preference)
                 key_tooltip_lines = [
-                    f"Detected: {format_key(song.musical_key)}",
+                    f"Detected: {format_key(song.musical_key, self.key_display_preference)}",
                 ]
                 if key_alias:
-                    key_tooltip_lines.append(f"Enharmonic: {key_alias}")
+                    key_tooltip_lines.append(f"Alternate: {key_alias}")
                 key_tooltip_lines.append(f"Camelot: {format_camelot(song.musical_key)}")
-                key_tooltip_lines.append(f"Relative Key: {format_key(song.relative_key)}")
+                key_tooltip_lines.append(f"Relative Key: {format_key(song.relative_key, self.key_display_preference)}")
                 if relative_alias:
-                    key_tooltip_lines.append(f"Relative Enharmonic: {relative_alias}")
-                key_tooltip_lines.append(f"Compatible Keys: {format_key_list(song.compatible_keys)}")
+                    key_tooltip_lines.append(f"Relative Alternate: {relative_alias}")
+                key_tooltip_lines.append(f"Compatible Keys: {format_key_list(song.compatible_keys, self.key_display_preference)}")
                 item.setToolTip("\n".join(key_tooltip_lines))
             elif column == relative_column:
-                relative_alias = enharmonic_key_alias(song.relative_key)
+                relative_alias = alternate_key_notation(song.relative_key, self.key_display_preference)
                 item.setToolTip(
-                    f"Relative Key: {format_key(song.relative_key)}"
-                    + (f"\nEnharmonic: {relative_alias}" if relative_alias else "")
+                    f"Relative Key: {format_key(song.relative_key, self.key_display_preference)}"
+                    + (f"\nAlternate: {relative_alias}" if relative_alias else "")
                 )
             elif column == compatible_column:
                 item.setToolTip(
                     f"Compatible Keys: {', '.join(compatible_camelot) if compatible_camelot else 'N/A'}"
                 )
             elif column == camelot_column:
-                relative_alias = enharmonic_key_alias(song.relative_key)
+                relative_alias = alternate_key_notation(song.relative_key, self.key_display_preference)
                 item.setToolTip(
                     f"Camelot: {format_camelot(song.musical_key)}\n"
-                    f"Relative Key: {format_key(song.relative_key)} ({camelot_for_key(song.relative_key) or 'N/A'})"
+                    f"Relative Key: {format_key(song.relative_key, self.key_display_preference)} ({camelot_for_key(song.relative_key) or 'N/A'})"
                     + (f" [{relative_alias}]" if relative_alias else "")
                     + "\n"
                     f"Compatible Keys: {', '.join(compatible_camelot) if compatible_camelot else 'N/A'}"

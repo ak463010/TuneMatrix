@@ -21,6 +21,7 @@ This file describes the current implementation status against the requested feat
 - remove selected
 - clear list
 - table columns for file name, full path, per-song BPM range hint, per-song key hint, duration, BPM, key, relative key, compatible keys, and status
+- global key-display preference for `Auto`, `Prefer Sharps`, and `Prefer Flats`
 
 ### Analysis
 
@@ -39,7 +40,7 @@ This file describes the current implementation status against the requested feat
 - stem separation entry point using Demucs
 - tempo matching
 - key pitch shifting
-- per-song target BPM, target key, stem selection, reference BPM/key toggles, and reference-song selection through the right sidebar
+- per-song target BPM, target key, stem selection, and reference-song selection through the right sidebar
 - global output-folder selection
 - process-all worker pipeline
 - export processed files and stems while keeping originals unchanged
@@ -50,7 +51,7 @@ This file describes the current implementation status against the requested feat
 - readable log and message-box errors
 - automated unittest suite
 - GitHub Actions test workflow
-- JSON project persistence with song metadata and global output settings
+- JSON project persistence with song metadata, global output settings, and key-display preference
 
 ## Partially Implemented
 

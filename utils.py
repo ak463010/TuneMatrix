@@ -9,6 +9,14 @@ from typing import Optional
 
 SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a"}
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+KEY_DISPLAY_AUTO = "auto"
+KEY_DISPLAY_PREFER_SHARPS = "prefer_sharps"
+KEY_DISPLAY_PREFER_FLATS = "prefer_flats"
+KEY_DISPLAY_PREFERENCE_OPTIONS = [
+    ("Auto", KEY_DISPLAY_AUTO),
+    ("Prefer Sharps", KEY_DISPLAY_PREFER_SHARPS),
+    ("Prefer Flats", KEY_DISPLAY_PREFER_FLATS),
+]
 CAMELOT_KEY_MAP = {
     "C Major": "8B",
     "C# Major": "3B",
@@ -92,27 +100,62 @@ def format_bpm(bpm: Optional[float]) -> str:
     return f"{bpm:.1f}"
 
 
-def format_key(key_name: Optional[str]) -> str:
-    return key_name or "N/A"
-
-
-def format_key_list(keys: Optional[list[str]]) -> str:
-    if not keys:
-        return "N/A"
-    return ", ".join(keys)
-
-
 def enharmonic_key_alias(key_name: Optional[str]) -> Optional[str]:
     if not key_name:
         return None
     return ENHARMONIC_KEY_ALIAS_MAP.get(key_name)
 
 
-def format_key_with_alias(key_name: Optional[str]) -> str:
-    formatted = format_key(key_name)
+def normalize_key_display_preference(preference: Optional[str]) -> str:
+    normalized = str(preference or KEY_DISPLAY_AUTO).strip().lower()
+    allowed = {KEY_DISPLAY_AUTO, KEY_DISPLAY_PREFER_SHARPS, KEY_DISPLAY_PREFER_FLATS}
+    if normalized in allowed:
+        return normalized
+    return KEY_DISPLAY_AUTO
+
+
+def display_key_name(key_name: Optional[str], preference: Optional[str] = None) -> Optional[str]:
+    if not key_name:
+        return None
+
+    normalized_preference = normalize_key_display_preference(preference)
+    alias = enharmonic_key_alias(key_name)
+    if normalized_preference == KEY_DISPLAY_PREFER_FLATS and alias and "#" in key_name:
+        return alias
+    if normalized_preference == KEY_DISPLAY_PREFER_SHARPS and alias and "\u266d" in key_name:
+        return alias
+    return key_name
+
+
+def alternate_key_notation(key_name: Optional[str], preference: Optional[str] = None) -> Optional[str]:
+    if not key_name:
+        return None
+
+    displayed = display_key_name(key_name, preference)
+    if displayed != key_name:
+        return key_name
+
+    alias = enharmonic_key_alias(key_name)
+    if alias and alias != displayed:
+        return alias
+    return None
+
+
+def format_key(key_name: Optional[str], preference: Optional[str] = None) -> str:
+    return display_key_name(key_name, preference) or "N/A"
+
+
+def format_key_list(keys: Optional[list[str]], preference: Optional[str] = None) -> str:
+    if not keys:
+        return "N/A"
+    return ", ".join(format_key(key_name, preference) for key_name in keys)
+
+
+def format_key_with_alias(key_name: Optional[str], preference: Optional[str] = None) -> str:
+    formatted = format_key(key_name, preference)
     if formatted == "N/A":
         return formatted
-    alias = enharmonic_key_alias(key_name)
+    alias = alternate_key_notation(key_name, preference)
     if not alias:
         return formatted
     return f"{formatted} ({alias})"

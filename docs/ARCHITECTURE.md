@@ -19,7 +19,7 @@ Each record stores:
 
 - original file path and file name
 - analyzed metadata such as duration, BPM, detected key, relative key, and compatible keys
-- per-song processing settings such as target BPM, target key, selected stems, reference BPM/key toggles, and reference song
+- per-song processing settings such as target BPM, target key, selected stems, and reference song
 - current UI status
 - generated stems directory
 - processed output path
@@ -31,7 +31,7 @@ Project sessions are stored as JSON with:
 
 - a format version
 - serialized `SongRecord` entries
-- persisted global UI state such as the export folder
+- persisted global UI state such as the export folder and key display preference
 
 ## UI Flow
 
@@ -43,6 +43,7 @@ Key responsibilities:
 - save and restore project state
 - maintain the in-memory song list
 - mirror song data into the table
+- apply the global key-display preference to visible key labels and tooltips
 - bind the right sidebar to the current song selection
 - create and manage worker threads
 - log progress and errors

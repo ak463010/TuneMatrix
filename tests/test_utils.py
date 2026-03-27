@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 
 from utils import (
+    KEY_DISPLAY_PREFER_FLATS,
+    KEY_DISPLAY_PREFER_SHARPS,
+    alternate_key_notation,
     build_output_filename,
     camelot_for_key,
     enharmonic_key_alias,
@@ -28,6 +31,10 @@ class UtilsTests(unittest.TestCase):
         self.assertEqual(format_bpm(128.456), "128.5")
         self.assertEqual(format_key(None), "N/A")
         self.assertEqual(format_key("A Minor"), "A Minor")
+        self.assertEqual(format_key("D# Minor", KEY_DISPLAY_PREFER_FLATS), "E♭ Minor")
+        self.assertEqual(format_key("E♭ Minor", KEY_DISPLAY_PREFER_SHARPS), "D# Minor")
+        self.assertEqual(alternate_key_notation("D# Minor"), "E♭ Minor")
+        self.assertEqual(alternate_key_notation("D# Minor", KEY_DISPLAY_PREFER_FLATS), "D# Minor")
 
     def test_safe_stem_and_build_output_filename(self) -> None:
         self.assertEqual(safe_stem(" A song / name "), "A_song_name")
@@ -41,6 +48,7 @@ class UtilsTests(unittest.TestCase):
         self.assertEqual(format_camelot(None), "N/A")
         self.assertEqual(enharmonic_key_alias("D# Minor"), "E♭ Minor")
         self.assertEqual(format_key_with_alias("D# Minor"), "D# Minor (E♭ Minor)")
+        self.assertEqual(format_key_with_alias("D# Minor", KEY_DISPLAY_PREFER_FLATS), "E♭ Minor (D# Minor)")
         self.assertEqual(format_key_with_alias("E Minor"), "E Minor")
 
     def test_validate_audio_file_accepts_supported_extension(self) -> None:

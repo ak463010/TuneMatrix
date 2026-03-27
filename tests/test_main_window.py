@@ -307,7 +307,25 @@ class MainWindowTests(unittest.TestCase):
             window.song_table.item(0, 9).toolTip(),
             "Compatible Keys: G# Minor (1A, A♭ Minor), C# Major (3B, D♭ Major)",
         )
-        self.assertIn("Enharmonic: E♭ Minor", window.song_table.item(0, 6).toolTip())
+        self.assertIn("Alternate: E♭ Minor", window.song_table.item(0, 6).toolTip())
+
+    def test_key_display_preference_updates_visible_key_labels(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["display_pref.wav"])
+
+        song = window.songs[0]
+        song.musical_key = "D# Minor"
+        song.relative_key = "F# Major"
+        song.compatible_keys = ["G# Minor", "C# Major"]
+        window._populate_song_row(0, song)
+
+        window.set_key_display_preference("prefer_flats")
+
+        self.assertEqual(window.song_table.item(0, 6).text(), "E♭ Minor")
+        self.assertEqual(window.song_table.item(0, 8).text(), "G♭ Major")
+        self.assertEqual(window.song_table.item(0, 9).text(), "A♭ Minor, D♭ Major")
+        self.assertEqual(window.target_key_combo.itemText(window.target_key_combo.findData("C# Major")), "D♭ Major")
+        self.assertIn("E♭ Minor", window.reference_combo.itemText(1))
 
     def test_start_analyze_task_blocks_when_runtime_issue_exists(self) -> None:
         window = self._build_window()
@@ -369,7 +387,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["songs"][0]["processing_target_key"], "A Minor")
         self.assertEqual(state["songs"][0]["processing_selected_stems"], ["Vocals", "Bass"])
         self.assertEqual(state["songs"][0]["reference_song_path"], str(paths[0].resolve()))
-        self.assertEqual(state["ui"], {"output_dir": "C:/exports"})
+        self.assertEqual(state["ui"], {"output_dir": "C:/exports", "key_display_preference": "auto"})
 
     def test_apply_project_state_restores_song_bound_processing_controls(self) -> None:
         window = self._build_window()
@@ -401,6 +419,7 @@ class MainWindowTests(unittest.TestCase):
                     ],
                     "ui": {
                         "output_dir": "D:/processed",
+                        "key_display_preference": "prefer_flats",
                     },
                 }
             )
@@ -408,6 +427,7 @@ class MainWindowTests(unittest.TestCase):
         window.song_table.selectRow(0)
 
         self.assertEqual(window.output_dir_edit.text(), "D:/processed")
+        self.assertEqual(window.key_display_preference, "prefer_flats")
         self.assertEqual(window.target_bpm_edit.text(), "132")
         self.assertEqual(window.target_key_combo.currentData(), "A Minor")
         self.assertEqual(window.reference_combo.currentData(), str(ref_path))
