@@ -7,10 +7,12 @@ from pathlib import Path
 from utils import (
     build_output_filename,
     camelot_for_key,
+    enharmonic_key_alias,
     format_bpm,
     format_camelot,
     format_duration,
     format_key,
+    format_key_with_alias,
     safe_stem,
     unique_path,
     validate_audio_file,
@@ -37,6 +39,9 @@ class UtilsTests(unittest.TestCase):
         self.assertEqual(camelot_for_key("G# Minor"), "1A")
         self.assertEqual(format_camelot("E Major"), "12B")
         self.assertEqual(format_camelot(None), "N/A")
+        self.assertEqual(enharmonic_key_alias("D# Minor"), "E♭ Minor")
+        self.assertEqual(format_key_with_alias("D# Minor"), "D# Minor (E♭ Minor)")
+        self.assertEqual(format_key_with_alias("E Minor"), "E Minor")
 
     def test_validate_audio_file_accepts_supported_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

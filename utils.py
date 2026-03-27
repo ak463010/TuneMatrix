@@ -35,6 +35,28 @@ CAMELOT_KEY_MAP = {
     "A# Minor": "3A",
     "B Minor": "10A",
 }
+ENHARMONIC_KEY_ALIAS_MAP = {
+    "C# Major": "D♭ Major",
+    "D♭ Major": "C# Major",
+    "D# Major": "E♭ Major",
+    "E♭ Major": "D# Major",
+    "F# Major": "G♭ Major",
+    "G♭ Major": "F# Major",
+    "G# Major": "A♭ Major",
+    "A♭ Major": "G# Major",
+    "A# Major": "B♭ Major",
+    "B♭ Major": "A# Major",
+    "C# Minor": "D♭ Minor",
+    "D♭ Minor": "C# Minor",
+    "D# Minor": "E♭ Minor",
+    "E♭ Minor": "D# Minor",
+    "F# Minor": "G♭ Minor",
+    "G♭ Minor": "F# Minor",
+    "G# Minor": "A♭ Minor",
+    "A♭ Minor": "G# Minor",
+    "A# Minor": "B♭ Minor",
+    "B♭ Minor": "A# Minor",
+}
 
 
 def is_supported_audio_file(path: str) -> bool:
@@ -78,6 +100,22 @@ def format_key_list(keys: Optional[list[str]]) -> str:
     if not keys:
         return "N/A"
     return ", ".join(keys)
+
+
+def enharmonic_key_alias(key_name: Optional[str]) -> Optional[str]:
+    if not key_name:
+        return None
+    return ENHARMONIC_KEY_ALIAS_MAP.get(key_name)
+
+
+def format_key_with_alias(key_name: Optional[str]) -> str:
+    formatted = format_key(key_name)
+    if formatted == "N/A":
+        return formatted
+    alias = enharmonic_key_alias(key_name)
+    if not alias:
+        return formatted
+    return f"{formatted} ({alias})"
 
 
 def camelot_for_key(key_name: Optional[str]) -> Optional[str]:

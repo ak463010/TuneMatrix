@@ -48,6 +48,7 @@ from models import (
 from utils import (
     camelot_for_key,
     default_export_dir,
+    enharmonic_key_alias,
     format_bpm,
     format_camelot,
     format_duration,
@@ -1947,7 +1948,11 @@ class MainWindow(QMainWindow):
         compatible_column = 9
         override_tooltip = self._song_processing_override_tooltip(song)
         compatible_camelot = [
-            f"{compatible_key} ({camelot_for_key(compatible_key) or 'N/A'})"
+            (
+                f"{compatible_key} ({camelot_for_key(compatible_key) or 'N/A'}, {enharmonic_key_alias(compatible_key)})"
+                if enharmonic_key_alias(compatible_key)
+                else f"{compatible_key} ({camelot_for_key(compatible_key) or 'N/A'})"
+            )
             for compatible_key in (song.compatible_keys or [])
         ]
         for column, value in enumerate(values):
@@ -1971,22 +1976,36 @@ class MainWindow(QMainWindow):
             else:
                 item.setForeground(QColor("#eef3fb"))
             if column == key_column:
-                item.setToolTip(
-                    f"Detected: {format_key(song.musical_key)}\n"
-                    f"Camelot: {format_camelot(song.musical_key)}\n"
-                    f"Relative Key: {format_key(song.relative_key)}\n"
-                    f"Compatible Keys: {format_key_list(song.compatible_keys)}"
-                )
+                key_alias = enharmonic_key_alias(song.musical_key)
+                relative_alias = enharmonic_key_alias(song.relative_key)
+                key_tooltip_lines = [
+                    f"Detected: {format_key(song.musical_key)}",
+                ]
+                if key_alias:
+                    key_tooltip_lines.append(f"Enharmonic: {key_alias}")
+                key_tooltip_lines.append(f"Camelot: {format_camelot(song.musical_key)}")
+                key_tooltip_lines.append(f"Relative Key: {format_key(song.relative_key)}")
+                if relative_alias:
+                    key_tooltip_lines.append(f"Relative Enharmonic: {relative_alias}")
+                key_tooltip_lines.append(f"Compatible Keys: {format_key_list(song.compatible_keys)}")
+                item.setToolTip("\n".join(key_tooltip_lines))
             elif column == relative_column:
-                item.setToolTip(f"Relative Key: {format_key(song.relative_key)}")
+                relative_alias = enharmonic_key_alias(song.relative_key)
+                item.setToolTip(
+                    f"Relative Key: {format_key(song.relative_key)}"
+                    + (f"\nEnharmonic: {relative_alias}" if relative_alias else "")
+                )
             elif column == compatible_column:
                 item.setToolTip(
                     f"Compatible Keys: {', '.join(compatible_camelot) if compatible_camelot else 'N/A'}"
                 )
             elif column == camelot_column:
+                relative_alias = enharmonic_key_alias(song.relative_key)
                 item.setToolTip(
                     f"Camelot: {format_camelot(song.musical_key)}\n"
-                    f"Relative Key: {format_key(song.relative_key)} ({camelot_for_key(song.relative_key) or 'N/A'})\n"
+                    f"Relative Key: {format_key(song.relative_key)} ({camelot_for_key(song.relative_key) or 'N/A'})"
+                    + (f" [{relative_alias}]" if relative_alias else "")
+                    + "\n"
                     f"Compatible Keys: {', '.join(compatible_camelot) if compatible_camelot else 'N/A'}"
                 )
             elif column == status_column and song.status == SongStatus.ERROR.value:

@@ -297,16 +297,17 @@ class MainWindowTests(unittest.TestCase):
         self._import_files(window, ["camelot.wav"])
 
         song = window.songs[0]
-        song.musical_key = "C Major"
-        song.relative_key = "A Minor"
-        song.compatible_keys = ["G Major", "E Minor"]
+        song.musical_key = "D# Minor"
+        song.relative_key = "F# Major"
+        song.compatible_keys = ["G# Minor", "C# Major"]
         window._populate_song_row(0, song)
 
-        self.assertEqual(window.song_table.item(0, 7).text(), "8B")
+        self.assertEqual(window.song_table.item(0, 7).text(), "2A")
         self.assertEqual(
             window.song_table.item(0, 9).toolTip(),
-            "Compatible Keys: G Major (9B), E Minor (9A)",
+            "Compatible Keys: G# Minor (1A, A♭ Minor), C# Major (3B, D♭ Major)",
         )
+        self.assertIn("Enharmonic: E♭ Minor", window.song_table.item(0, 6).toolTip())
 
     def test_start_analyze_task_blocks_when_runtime_issue_exists(self) -> None:
         window = self._build_window()
