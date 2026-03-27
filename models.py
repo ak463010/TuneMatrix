@@ -75,6 +75,14 @@ BPM_RANGE_OPTIONS = [
 BPM_RANGE_DEFAULT_LABEL = "Auto"
 BPM_RANGE_MANUAL_LABEL = "Enter BPM..."
 
+STEM_SOURCE_LATEST = "latest_available_audio"
+STEM_SOURCE_ORIGINAL = "original_track"
+STEM_SOURCE_OPTIONS = [
+    (STEM_SOURCE_LATEST, "Latest Available Audio"),
+    (STEM_SOURCE_ORIGINAL, "Original Track"),
+]
+STEM_SOURCE_LABELS = {value: label for value, label in STEM_SOURCE_OPTIONS}
+
 
 class SongStatus(str, Enum):
     READY = "Ready"
@@ -111,7 +119,9 @@ class SongRecord:
     processing_override_enabled: bool = False
     processing_target_bpm: Optional[float] = None
     processing_target_key: Optional[str] = None
+    processing_tempo_source: str = STEM_SOURCE_LATEST
     processing_selected_stems: Optional[list[str]] = field(default_factory=list)
+    processing_stem_source: str = STEM_SOURCE_LATEST
     duration: Optional[float] = None
     bpm: Optional[float] = None
     musical_key: Optional[str] = None
@@ -131,7 +141,9 @@ class SongRecord:
         has_song_processing = bool(
             self.processing_target_bpm is not None
             or self.processing_target_key
+            or self.processing_tempo_source != STEM_SOURCE_LATEST
             or bool(self.processing_selected_stems)
+            or self.processing_stem_source != STEM_SOURCE_LATEST
         )
         return {
             "file_path": self.file_path,
@@ -141,11 +153,13 @@ class SongRecord:
             "processing_override_enabled": has_song_processing,
             "processing_target_bpm": self.processing_target_bpm,
             "processing_target_key": self.processing_target_key,
+            "processing_tempo_source": self.processing_tempo_source,
             "processing_selected_stems": (
                 list(self.processing_selected_stems)
                 if self.processing_selected_stems is not None
                 else None
             ),
+            "processing_stem_source": self.processing_stem_source,
             "duration": self.duration,
             "bpm": self.bpm,
             "musical_key": self.musical_key,
@@ -172,11 +186,13 @@ class SongRecord:
             processing_override_enabled=bool(data.get("processing_override_enabled", False)),
             processing_target_bpm=data.get("processing_target_bpm"),
             processing_target_key=data.get("processing_target_key"),
+            processing_tempo_source=normalize_stem_source(data.get("processing_tempo_source")),
             processing_selected_stems=(
                 list(data.get("processing_selected_stems"))
                 if isinstance(data.get("processing_selected_stems"), list)
                 else []
             ),
+            processing_stem_source=normalize_stem_source(data.get("processing_stem_source")),
             duration=data.get("duration"),
             bpm=data.get("bpm"),
             musical_key=data.get("musical_key"),
@@ -198,6 +214,12 @@ class ProcessingOptions:
     output_dir: Optional[str] = None
     key_display_preference: Optional[str] = None
     workflow_steps: Optional[list[str]] = None
+
+
+def normalize_stem_source(raw_value: Any) -> str:
+    if isinstance(raw_value, str) and raw_value in STEM_SOURCE_LABELS:
+        return raw_value
+    return STEM_SOURCE_LATEST
 
 
 def normalize_workflow_steps(raw_steps: Any) -> list[WorkflowStep]:

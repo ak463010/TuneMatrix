@@ -18,6 +18,7 @@ from audio_processing import (
     separate_song_stems,
 )
 from models import ProcessingOptions, SongRecord, SongStatus, WORKFLOW_STEP_LABELS, bpm_range_from_label
+from models import STEM_SOURCE_LATEST, STEM_SOURCE_ORIGINAL, normalize_stem_source
 from utils import ensure_directory, make_song_cache_dir
 
 
@@ -217,6 +218,22 @@ class ProcessingWorker(BaseWorker):
             return selected_stems[0], selected_stems
         return "All stems", selected_stems
 
+    def _effective_stem_source(self, song: SongRecord) -> str:
+        return normalize_stem_source(song.processing_stem_source)
+
+    def _effective_tempo_source(self, song: SongRecord) -> str:
+        return normalize_stem_source(song.processing_tempo_source)
+
+    def _separation_source_path(self, song: SongRecord, latest_available_path: Optional[str] = None) -> str:
+        if self._effective_stem_source(song) == STEM_SOURCE_ORIGINAL:
+            return song.file_path
+        return latest_available_path or song.processed_path or song.file_path
+
+    def _tempo_source_path(self, song: SongRecord, latest_available_path: Optional[str] = None) -> str:
+        if self._effective_tempo_source(song) == STEM_SOURCE_ORIGINAL:
+            return song.file_path
+        return latest_available_path or song.processed_path or song.file_path
+
     def _workflow_steps(self) -> list[str]:
         return list(self.options.workflow_steps or [])
 
@@ -244,7 +261,7 @@ class ProcessingWorker(BaseWorker):
             song.last_error = None
         self.song_updated.emit(song)
 
-    def _separate(self, song: SongRecord) -> None:
+    def _separate(self, song: SongRecord, source_path: Optional[str] = None) -> None:
         stem_option, selected_stems = self._effective_stem_settings(song)
         if stem_option is None:
             raise AudioProcessingError("Select at least one stem before running Separate Stems.")
@@ -252,6 +269,7 @@ class ProcessingWorker(BaseWorker):
         result = separate_song_stems(
             song,
             stem_option,
+            source_path=source_path or self._separation_source_path(song),
             selected_stems=selected_stems,
             log_callback=self.log.emit,
             cancel_callback=self.is_canceled,
@@ -261,14 +279,18 @@ class ProcessingWorker(BaseWorker):
         song.last_error = None
         self.song_updated.emit(song)
 
-    def _match_tempo(self, song: SongRecord, target_bpm: Optional[float]) -> None:
+    def _match_tempo(self, song: SongRecord, target_bpm: Optional[float], source_path: Optional[str] = None) -> None:
         if target_bpm is None:
             raise AudioProcessingError("Tempo matching needs a target BPM.")
 
         self.check_canceled()
         self.update_song_status(song, SongStatus.MATCHING_TEMPO.value)
         self._ensure_song_analysis(song)
-        result = match_song_tempo(song, target_bpm, log_callback=self.log.emit, cancel_callback=self.is_canceled)
+        resolved_source_path = source_path or self._tempo_source_path(song)
+        current_song_source_path = song.processed_path or song.file_path
+        working_bpm = song.bpm if resolved_source_path == current_song_source_path else None
+        working_song = self._make_temporary_song(resolved_source_path, song.file_name, working_bpm, song.musical_key)
+        result = match_song_tempo(working_song, target_bpm, log_callback=self.log.emit, cancel_callback=self.is_canceled)
         song.processed_path = str(result["output_path"])
         song.duration = float(result["duration"])
         song.bpm = float(result["bpm"])
@@ -465,7 +487,9 @@ class ProcessingWorker(BaseWorker):
                     self.log.emit(f"{song.file_name}: skipping Match Tempo because no Target BPM is set.")
                     continue
                 if current_stem_paths is None:
-                    working_song = self._make_temporary_song(current_mix_path, song.file_name, current_bpm, current_key)
+                    tempo_source_path = self._tempo_source_path(song, current_mix_path)
+                    working_bpm = current_bpm if tempo_source_path == current_mix_path else None
+                    working_song = self._make_temporary_song(tempo_source_path, song.file_name, working_bpm, current_key)
                     self.update_song_status(song, SongStatus.MATCHING_TEMPO.value)
                     result = match_song_tempo(
                         working_song,
@@ -500,8 +524,7 @@ class ProcessingWorker(BaseWorker):
                 if stem_option is None:
                     self.log.emit(f"{song.file_name}: skipping Separate Stems because no stems are selected.")
                     continue
-                song.processed_path = current_mix_path if current_mix_path != song.file_path else song.processed_path
-                self._separate(song)
+                self._separate(song, source_path=self._separation_source_path(song, current_mix_path))
                 current_stem_paths = self._stem_paths_from_directory(song.stems_dir or "")
                 if not current_stem_paths:
                     raise AudioProcessingError(f"No stems were produced for {song.file_name}.")

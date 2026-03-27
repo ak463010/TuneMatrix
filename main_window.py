@@ -42,6 +42,10 @@ from models import (
     ProcessingOptions,
     SongRecord,
     SongStatus,
+    STEM_SOURCE_LABELS,
+    STEM_SOURCE_LATEST,
+    STEM_SOURCE_OPTIONS,
+    STEM_SOURCE_ORIGINAL,
     STEM_OPTIONS,
     TABLE_HEADERS,
     WORKFLOW_STEP_LABELS,
@@ -65,7 +69,7 @@ from utils import (
 )
 from workers import AnalyzeWorker, ProcessingWorker
 
-PROJECT_STATE_VERSION = 3
+PROJECT_STATE_VERSION = 4
 PROJECT_FILE_SUFFIX = ".tunematrix.json"
 PROJECT_FILE_FILTER = "TuneMatrix Project (*.tunematrix.json);;JSON Files (*.json)"
 ICON_DIR = Path(__file__).resolve().parent / "assets" / "icons"
@@ -750,12 +754,33 @@ class MainWindow(QMainWindow):
 
                 row_layout.addLayout(text_column, 1)
 
+                settings_button = None
+                settings_menu = None
+                if workflow_step.step_id in {"match_tempo", "separate"}:
+                    settings_button = QToolButton()
+                    settings_button.setObjectName("workflowSettingsButton")
+                    settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
+                    settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+                    settings_button.setIcon(self._icon("settings"))
+                    settings_button.setIconSize(QSize(12, 12))
+                    settings_button.setAutoRaise(True)
+                    settings_menu = QMenu(settings_button)
+                    settings_button.setMenu(settings_menu)
+                    settings_menu.aboutToShow.connect(
+                        lambda step_id=workflow_step.step_id, menu=settings_menu: self._populate_workflow_step_settings_menu(
+                            step_id, menu
+                        )
+                    )
+                    row_layout.addWidget(settings_button, 0, Qt.AlignmentFlag.AlignTop)
+
                 self.workflow_step_rows[workflow_step.step_id] = {
                     "row": row_widget,
                     "index": index_label,
                     "checkbox": enabled_checkbox,
                     "title": title_label,
                     "summary": summary_label,
+                    "settings_button": settings_button,
+                    "settings_menu": settings_menu,
                 }
                 self.workflow_panel_layout.addWidget(row_widget)
             self.workflow_panel_layout.addStretch(1)
@@ -777,22 +802,67 @@ class MainWindow(QMainWindow):
     def _enabled_workflow_step_ids(self) -> list[str]:
         return [workflow_step.step_id for workflow_step in self.workflow_steps if workflow_step.enabled]
 
+    def _format_stem_source_label(self, stem_source: Optional[str]) -> str:
+        return STEM_SOURCE_LABELS.get(str(stem_source or ""), STEM_SOURCE_LABELS[STEM_SOURCE_LATEST])
+
+    def _selected_stem_source_state(self) -> tuple[str, str]:
+        selected_songs = self.selected_songs()
+        if not selected_songs:
+            return "none", "Select songs to edit stem source."
+
+        stem_source_values = {self._song_stem_source_value(song) for song in selected_songs}
+        if len(stem_source_values) == 1:
+            return next(iter(stem_source_values)), ""
+        return "__mixed__", "Stem Source: Mixed"
+
+    def _selected_tempo_source_state(self) -> tuple[str, str]:
+        selected_songs = self.selected_songs()
+        if not selected_songs:
+            return "none", "Select songs to edit tempo source."
+
+        tempo_source_values = {self._song_tempo_source_value(song) for song in selected_songs}
+        if len(tempo_source_values) == 1:
+            return next(iter(tempo_source_values)), ""
+        return "__mixed__", "Tempo Source: Mixed"
+
+    def _populate_workflow_step_settings_menu(self, step_id: str, menu: QMenu) -> None:
+        menu.clear()
+        if step_id not in {"match_tempo", "separate"}:
+            return
+
+        if step_id == "match_tempo":
+            source_value, _tooltip = self._selected_tempo_source_state()
+            apply_handler = self._apply_tempo_source_value_to_selection
+        else:
+            source_value, _tooltip = self._selected_stem_source_state()
+            apply_handler = self._apply_stem_source_value_to_selection
+
+        action_group = QActionGroup(menu)
+        action_group.setExclusive(True)
+        for candidate_value, label in STEM_SOURCE_OPTIONS:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(source_value == candidate_value)
+            action_group.addAction(action)
+            action.triggered.connect(
+                lambda _checked=False, chosen_value=candidate_value, handler=apply_handler: handler(chosen_value)
+            )
+
     def _song_can_run_workflow_step(self, song: SongRecord, step_id: str) -> tuple[bool, str]:
         if step_id == "match_key":
             if song.processing_target_key:
-                return True, f"Will use {format_key(song.processing_target_key, self.key_display_preference)}"
+                return True, f"Input: Original Track • {format_key(song.processing_target_key, self.key_display_preference)}"
             return False, "Skip: no Target Key"
         if step_id == "match_tempo":
             if song.processing_target_bpm is not None:
-                return True, f"Will use {song.processing_target_bpm:g} BPM"
+                return True, f"Input: {self._format_stem_source_label(song.processing_tempo_source)} • {song.processing_target_bpm:g} BPM"
             return False, "Skip: no Target BPM"
         if step_id == "separate":
             selected_stems = song.processing_selected_stems
             if selected_stems == []:
                 return False, "Skip: no stems selected"
-            if selected_stems is None:
-                return True, "Will split all stems"
-            return True, f"Will split {', '.join(selected_stems)}"
+            stems_label = self._display_stem_list(selected_stems)
+            return True, f"Source: {self._format_stem_source_label(song.processing_stem_source)} • {stems_label}"
         return False, "Skip"
 
     def _workflow_step_visual_summary(self, step_id: str) -> tuple[str, str]:
@@ -833,12 +903,29 @@ class MainWindow(QMainWindow):
             row_widget = row_parts["row"]
             summary_label = row_parts["summary"]
             index_label = row_parts["index"]
+            settings_button = row_parts.get("settings_button")
 
             row_widget.setProperty("workflowState", state)
             row_widget.style().unpolish(row_widget)
             row_widget.style().polish(row_widget)
             summary_label.setText(summary)
             index_label.setText(str(index))
+            if settings_button is not None:
+                selected_songs = self.selected_songs()
+                enabled = bool(selected_songs) and self._can_edit_song_bound_controls(selected_songs)
+                settings_button.setEnabled(enabled)
+                if workflow_step.step_id == "match_tempo":
+                    source_value, tooltip = self._selected_tempo_source_state()
+                    source_prefix = "Tempo Source"
+                else:
+                    source_value, tooltip = self._selected_stem_source_state()
+                    source_prefix = "Stem Source"
+                if source_value == "__mixed__":
+                    settings_button.setToolTip(tooltip)
+                elif source_value == "none":
+                    settings_button.setToolTip(tooltip)
+                else:
+                    settings_button.setToolTip(f"{source_prefix}: {self._format_stem_source_label(source_value)}")
 
     def _build_log_panel(self) -> QWidget:
         panel = QFrame()
@@ -1153,6 +1240,24 @@ class MainWindow(QMainWindow):
                 color: #eef3fb;
                 font-weight: 600;
             }
+            #workflowSettingsButton {
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 4px;
+                padding: 2px;
+                min-width: 18px;
+                min-height: 18px;
+                max-width: 18px;
+                max-height: 18px;
+            }
+            #workflowSettingsButton:hover {
+                background-color: #2a3340;
+                border-color: #3a4b61;
+            }
+            #workflowSettingsButton:disabled {
+                background: transparent;
+                border-color: transparent;
+            }
             #workflowStepSummary {
                 color: #90a0b6;
                 font-size: 11px;
@@ -1458,11 +1563,21 @@ class MainWindow(QMainWindow):
             return []
         return list(song.processing_selected_stems)
 
+    def _song_stem_source_value(self, song: SongRecord) -> str:
+        stem_source = str(song.processing_stem_source or STEM_SOURCE_LATEST)
+        return stem_source if stem_source in STEM_SOURCE_LABELS else STEM_SOURCE_LATEST
+
+    def _song_tempo_source_value(self, song: SongRecord) -> str:
+        tempo_source = str(song.processing_tempo_source or STEM_SOURCE_LATEST)
+        return tempo_source if tempo_source in STEM_SOURCE_LABELS else STEM_SOURCE_LATEST
+
     def _song_has_processing_settings(self, song: SongRecord) -> bool:
         return bool(
             song.processing_target_bpm is not None
             or song.processing_target_key
+            or self._song_tempo_source_value(song) != STEM_SOURCE_LATEST
             or bool(song.processing_selected_stems)
+            or self._song_stem_source_value(song) != STEM_SOURCE_LATEST
         )
 
     def _sync_song_processing_flag(self, song: SongRecord) -> None:
@@ -1473,13 +1588,17 @@ class MainWindow(QMainWindow):
             return ""
 
         stems_label = self._display_stem_list(song.processing_selected_stems)
+        tempo_source_label = self._format_stem_source_label(song.processing_tempo_source)
+        stem_source_label = self._format_stem_source_label(song.processing_stem_source)
         bpm_label = f"{song.processing_target_bpm:g}" if song.processing_target_bpm is not None else "Not set"
         key_label = format_key(song.processing_target_key, self.key_display_preference) if song.processing_target_key else "Unchanged"
         return (
             "Song processing\n"
             f"Target BPM: {bpm_label}\n"
             f"Target Key: {key_label}\n"
-            f"Stems: {stems_label}"
+            f"Tempo Source: {tempo_source_label}\n"
+            f"Stems: {stems_label}\n"
+            f"Stem Source: {stem_source_label}"
         )
 
     def selected_stem_values(self) -> list[str]:
@@ -1508,16 +1627,29 @@ class MainWindow(QMainWindow):
         checkbox.setCheckState(state)
         checkbox.blockSignals(False)
 
-    def _can_edit_song_bound_controls(self) -> bool:
-        return self.current_worker is None or isinstance(self.current_worker, AnalyzeWorker)
+    def _can_edit_song_bound_controls(self, songs: Optional[list[SongRecord]] = None) -> bool:
+        if self.current_worker is None or isinstance(self.current_worker, AnalyzeWorker):
+            return True
+
+        selected_songs = songs if songs is not None else self.selected_songs()
+        if not selected_songs:
+            return False
+
+        if isinstance(self.current_worker, ProcessingWorker):
+            active_song_paths = {song.file_path for song in self.current_worker.songs}
+            selected_song_paths = {song.file_path for song in selected_songs}
+            return active_song_paths.isdisjoint(selected_song_paths)
+
+        return False
 
     def _set_song_bound_controls_enabled(self, enabled: bool) -> None:
+        selected_songs = self.selected_songs()
         for control in [
             self.target_bpm_edit,
             self.target_key_combo,
             *self.stem_checkboxes.values(),
         ]:
-            control.setEnabled(enabled and self._can_edit_song_bound_controls())
+            control.setEnabled(enabled and self._can_edit_song_bound_controls(selected_songs))
 
     def _load_processing_editor_from_selection(self) -> None:
         if not hasattr(self, "editor_scope_label"):
@@ -1699,6 +1831,44 @@ class MainWindow(QMainWindow):
             return
 
         songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "processing_target_key", target_key))
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_stem_source_value_to_selection(self, stem_source: Optional[str]) -> None:
+        if self._sidebar_binding_in_progress or not self._can_edit_song_bound_controls():
+            return
+
+        if stem_source == "__mixed__":
+            return
+
+        normalized_stem_source = stem_source or STEM_SOURCE_LATEST
+
+        if not self._confirm_override_for_mixed_selection("Stem Source", lambda song: self._song_stem_source_value(song)):
+            self._load_processing_editor_from_selection()
+            return
+
+        songs = self._apply_processing_field_to_selected_songs(
+            lambda song: setattr(song, "processing_stem_source", normalized_stem_source)
+        )
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_tempo_source_value_to_selection(self, tempo_source: Optional[str]) -> None:
+        if self._sidebar_binding_in_progress or not self._can_edit_song_bound_controls():
+            return
+
+        if tempo_source == "__mixed__":
+            return
+
+        normalized_tempo_source = tempo_source or STEM_SOURCE_LATEST
+
+        if not self._confirm_override_for_mixed_selection("Tempo Source", lambda song: self._song_tempo_source_value(song)):
+            self._load_processing_editor_from_selection()
+            return
+
+        songs = self._apply_processing_field_to_selected_songs(
+            lambda song: setattr(song, "processing_tempo_source", normalized_tempo_source)
+        )
         if songs:
             self._load_processing_editor_from_selection()
 
@@ -2262,7 +2432,6 @@ class MainWindow(QMainWindow):
             self.save_project_action,
             self.remove_button,
             self.clear_button,
-            self.workflow_panel,
             self.output_dir_edit,
             self.output_browse_button,
             self.remove_action,

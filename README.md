@@ -31,6 +31,8 @@ What works now:
 - a global `Key Display` preference switches visible key names between `Auto`, `Prefer Sharps`, and `Prefer Flats`
 - the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, and stem selection
 - the right sidebar shows a fixed workflow visualization for `Match Key -> Match Tempo -> Separate Stems`
+- the `Separate Stems` workflow card now has a settings button for per-song `Stem Source`
+- stem separation can use either the `Original Track` or the `Latest Available Audio`, per song, with `Latest Available Audio` as the default
 - each workflow step can be enabled or disabled without changing the execution order
 - the workflow visualization is selection-aware and shows when a step will run, partially run, or be skipped
 - `Output Folder` remains a single global export setting and is persisted separately from per-song processing settings

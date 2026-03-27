@@ -788,11 +788,12 @@ def match_song_key(
 def separate_song_stems(
     song: SongRecord,
     stem_option: str,
+    source_path: Optional[str] = None,
     selected_stems: Optional[list[str]] = None,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, str]:
-    source_path = song.processed_path or song.file_path
+    source_path = source_path or song.processed_path or song.file_path
     issues = action_runtime_issues("separate", [source_path])
     if issues:
         raise DependencyError(" ".join(issues))
