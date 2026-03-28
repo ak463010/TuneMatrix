@@ -113,7 +113,7 @@ After setup:
 4. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
 5. In the right sidebar, choose a per-song `Processing Mode` if you want to tune tempo/key quality:
    `Balanced`, `High Quality Mix`, `Vocal`, `Percussive`, or `Fast Preview`.
-   `High Quality Mix` is the better choice for wide full-song mixes, while `Vocal` keeps lead vocals more centered and stable during pitch shifting.
+   `High Quality Mix` is the better choice for wide full-song mixes and now uses Rubber Band's slower high-quality pitch path, while `Vocal` keeps lead vocals more centered and stable with formant preservation.
 6. Run `Match Tempo` or `Match Key`.
 7. Export the result.
 

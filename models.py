@@ -99,8 +99,8 @@ PROCESSING_MODE_OPTIONS = [
 PROCESSING_MODE_LABELS = {value: label for value, label in PROCESSING_MODE_OPTIONS}
 PROCESSING_MODE_DESCRIPTIONS = {
     PROCESSING_MODE_BALANCED: "General-purpose mode with a balanced blend of speed, punch, and stereo focus.",
-    PROCESSING_MODE_HIGH_QUALITY_MIX: "Quality-first mode for full stereo mixes with less center bias and more width.",
-    PROCESSING_MODE_VOCAL: "Keeps lead vocals more centered and preserves vocal timbre during pitch shifting.",
+    PROCESSING_MODE_HIGH_QUALITY_MIX: "Quality-first mode for full stereo mixes with less center bias, more width, and the slower high-quality pitch path.",
+    PROCESSING_MODE_VOCAL: "Keeps lead vocals more centered and uses formant-preserving high-quality pitch shifting.",
     PROCESSING_MODE_PERCUSSIVE: "Favors drums and transients, with more attack than smoothness.",
     PROCESSING_MODE_FAST_PREVIEW: "Fastest preview mode with the lowest processing cost.",
 }

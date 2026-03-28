@@ -105,11 +105,11 @@ class AudioProcessingTests(unittest.TestCase):
         )
         self.assertEqual(
             _rubberband_args_for_processing_mode(PROCESSING_MODE_HIGH_QUALITY_MIX, "pitch"),
-            {"--fine": ""},
+            {"--fine": "", "--realtime": "", "--pitch-hq": ""},
         )
         self.assertEqual(
             _rubberband_args_for_processing_mode(PROCESSING_MODE_VOCAL, "pitch"),
-            {"--fine": "", "--centre-focus": "", "--formant": ""},
+            {"--fine": "", "--centre-focus": "", "--realtime": "", "--pitch-hq": "", "--formant": ""},
         )
         self.assertEqual(
             _rubberband_args_for_processing_mode(PROCESSING_MODE_PERCUSSIVE, "tempo"),
@@ -166,7 +166,10 @@ class AudioProcessingTests(unittest.TestCase):
         def fake_pitch_shift(y, sr, n_steps, rbargs=None):
             self.assertEqual(sr, 48000)
             self.assertEqual(n_steps, 3.0)
-            self.assertEqual(rbargs, {"--fine": "", "--centre-focus": "", "--formant": ""})
+            self.assertEqual(
+                rbargs,
+                {"--fine": "", "--centre-focus": "", "--realtime": "", "--pitch-hq": "", "--formant": ""},
+            )
             self.assertEqual(y.shape, (3, 2))
             np.testing.assert_allclose(y[:, 0], stereo_audio[0])
             np.testing.assert_allclose(y[:, 1], stereo_audio[1])

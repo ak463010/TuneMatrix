@@ -601,10 +601,16 @@ def _rubberband_args_for_processing_mode(processing_mode: str, operation: str) -
     normalized_mode = normalize_processing_mode(processing_mode)
 
     if normalized_mode == PROCESSING_MODE_HIGH_QUALITY_MIX:
-        return {"--fine": ""}
+        rbargs = {"--fine": ""}
+        if operation == "pitch":
+            rbargs["--realtime"] = ""
+            rbargs["--pitch-hq"] = ""
+        return rbargs
     if normalized_mode == PROCESSING_MODE_VOCAL:
         rbargs = {"--fine": "", "--centre-focus": ""}
         if operation == "pitch":
+            rbargs["--realtime"] = ""
+            rbargs["--pitch-hq"] = ""
             rbargs["--formant"] = ""
         return rbargs
     if normalized_mode == PROCESSING_MODE_PERCUSSIVE:
