@@ -298,27 +298,24 @@ def detect_key(audio: "np.ndarray", sample_rate: int, key_hint: Optional[str] = 
     if audio.size == 0:
         return None
 
+    harmonic_audio = audio
     try:
-        chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate)
+        harmonic_audio = librosa.effects.harmonic(audio)
     except Exception:
-        chroma = librosa.feature.chroma_stft(y=audio, sr=sample_rate)
+        harmonic_audio = audio
 
-    pitch_profile = np.mean(chroma, axis=1)
+    try:
+        chroma = librosa.feature.chroma_cqt(y=harmonic_audio, sr=sample_rate)
+    except Exception:
+        chroma = librosa.feature.chroma_stft(y=harmonic_audio, sr=sample_rate)
+
+    mean_profile = np.mean(chroma, axis=1)
+    median_profile = np.median(chroma, axis=1)
+    pitch_profile = (0.65 * mean_profile) + (0.35 * median_profile)
     if not np.any(pitch_profile):
         return None
 
-    pitch_profile = pitch_profile / np.sum(pitch_profile)
-    major_template = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], dtype=float)
-    minor_template = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17], dtype=float)
-    major_template /= major_template.sum()
-    minor_template /= minor_template.sum()
-
-    scored_keys: dict[str, float] = {}
-    for note_index, note_name in enumerate(NOTE_NAMES):
-        major_score = float(np.dot(pitch_profile, np.roll(major_template, note_index)))
-        minor_score = float(np.dot(pitch_profile, np.roll(minor_template, note_index)))
-        scored_keys[f"{note_name} Major"] = major_score
-        scored_keys[f"{note_name} Minor"] = minor_score
+    scored_keys = _score_keys_from_pitch_profile(pitch_profile)
 
     best_key = max(scored_keys, key=scored_keys.get)
     best_score = scored_keys[best_key]
@@ -329,6 +326,54 @@ def detect_key(audio: "np.ndarray", sample_rate: int, key_hint: Optional[str] = 
         if best_score - key_hint_score <= margin:
             return key_hint
     return best_key
+
+
+def _normalize_pitch_profile(pitch_profile: "np.ndarray") -> "np.ndarray":
+    profile = np.asarray(pitch_profile, dtype=float).reshape(-1)
+    if profile.size != len(NOTE_NAMES):
+        raise AudioProcessingError(f"Expected a 12-bin pitch profile, got {profile.size}.")
+    total = float(profile.sum())
+    if total <= 0:
+        return profile
+    return profile / total
+
+
+def _correlation_score(profile: "np.ndarray", template: "np.ndarray") -> float:
+    centered_profile = profile - np.mean(profile)
+    centered_template = template - np.mean(template)
+    denominator = float(np.linalg.norm(centered_profile) * np.linalg.norm(centered_template))
+    if denominator <= 0:
+        return 0.0
+    return float(np.dot(centered_profile, centered_template) / denominator)
+
+
+def _score_candidate_key(profile: "np.ndarray", note_index: int, mode: str) -> float:
+    major_template = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88], dtype=float)
+    minor_template = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17], dtype=float)
+    template = major_template if mode == "Major" else minor_template
+    rolled_template = np.roll(template, note_index)
+
+    tonic = profile[note_index]
+    fifth = profile[(note_index + 7) % len(NOTE_NAMES)]
+    if mode == "Major":
+        mode_third = profile[(note_index + 4) % len(NOTE_NAMES)]
+        opposite_third = profile[(note_index + 3) % len(NOTE_NAMES)]
+    else:
+        mode_third = profile[(note_index + 3) % len(NOTE_NAMES)]
+        opposite_third = profile[(note_index + 4) % len(NOTE_NAMES)]
+
+    correlation = _correlation_score(profile, rolled_template)
+    tonic_stability = (0.22 * tonic) + (0.10 * fifth) + (0.14 * mode_third) - (0.08 * opposite_third)
+    return correlation + tonic_stability
+
+
+def _score_keys_from_pitch_profile(pitch_profile: "np.ndarray") -> dict[str, float]:
+    profile = _normalize_pitch_profile(pitch_profile)
+    scored_keys: dict[str, float] = {}
+    for note_index, note_name in enumerate(NOTE_NAMES):
+        scored_keys[f"{note_name} Major"] = _score_candidate_key(profile, note_index, "Major")
+        scored_keys[f"{note_name} Minor"] = _score_candidate_key(profile, note_index, "Minor")
+    return scored_keys
 
 
 def _load_audio_for_processing(file_path: str) -> tuple["np.ndarray", int]:

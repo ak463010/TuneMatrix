@@ -16,6 +16,7 @@ from audio_processing import (
     _apply_demucs_model_with_cancel,
     _export_processed_filename,
     _pitch_shift,
+    _score_keys_from_pitch_profile,
     _rubberband_args_for_processing_mode,
     _time_stretch,
     action_base_requirement_message,
@@ -74,6 +75,32 @@ class AudioProcessingTests(unittest.TestCase):
             get_compatible_keys("A Minor"),
             ["C Major", "E Minor", "G Major", "D Minor", "F Major"],
         )
+
+    def test_key_scoring_prefers_major_tonic_over_relative_minor(self) -> None:
+        profile = np.array(
+            [
+                0.23, 0.01, 0.06, 0.01, 0.17, 0.07,
+                0.01, 0.14, 0.01, 0.10, 0.01, 0.18,
+            ],
+            dtype=float,
+        )
+
+        scored = _score_keys_from_pitch_profile(profile)
+
+        self.assertGreater(scored["C Major"], scored["A Minor"])
+
+    def test_key_scoring_prefers_minor_tonic_over_relative_major(self) -> None:
+        profile = np.array(
+            [
+                0.16, 0.01, 0.05, 0.01, 0.09, 0.04,
+                0.01, 0.08, 0.01, 0.24, 0.01, 0.29,
+            ],
+            dtype=float,
+        )
+
+        scored = _score_keys_from_pitch_profile(profile)
+
+        self.assertGreater(scored["A Minor"], scored["C Major"])
 
     def test_normalize_bpm_to_range_hint_prefers_value_inside_selected_band(self) -> None:
         self.assertEqual(normalize_bpm_to_range_hint(75.0, (140.0, 160.0)), 150.0)
