@@ -4,6 +4,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -14,6 +15,9 @@ from audio_processing import (
     TaskCanceledError,
     _apply_demucs_model_with_cancel,
     _export_processed_filename,
+    _pitch_shift,
+    _rubberband_args_for_processing_mode,
+    _time_stretch,
     action_base_requirement_message,
     action_runtime_issues,
     apply_bpm_analysis_hint,
@@ -26,7 +30,17 @@ from audio_processing import (
     normalize_bpm_to_range_hint,
     separate_song_stems,
 )
-from models import BPMAnalysisHint, SongRecord, bpm_hint_from_label, bpm_range_from_label
+from models import (
+    BPMAnalysisHint,
+    PROCESSING_MODE_BALANCED,
+    PROCESSING_MODE_FAST_PREVIEW,
+    PROCESSING_MODE_HIGH_QUALITY_MIX,
+    PROCESSING_MODE_PERCUSSIVE,
+    PROCESSING_MODE_VOCAL,
+    SongRecord,
+    bpm_hint_from_label,
+    bpm_range_from_label,
+)
 
 
 def create_test_wave(path: Path, frequency: float = 440.0, duration: float = 2.0, sample_rate: int = 22050) -> None:
@@ -83,6 +97,96 @@ class AudioProcessingTests(unittest.TestCase):
             apply_bpm_analysis_hint(75.0, BPMAnalysisHint(bpm_range=(140.0, 160.0))),
             150.0,
         )
+
+    def test_rubberband_args_vary_by_processing_mode(self) -> None:
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_BALANCED, "tempo"),
+            {"--fast": "", "--centre-focus": "", "--crisp": "5"},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_HIGH_QUALITY_MIX, "pitch"),
+            {"--fine": ""},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_VOCAL, "pitch"),
+            {"--fine": "", "--centre-focus": "", "--formant": ""},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_PERCUSSIVE, "tempo"),
+            {"--fast": "", "--centre-focus": "", "--crisp": "6"},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_FAST_PREVIEW, "tempo"),
+            {"--fast": "", "--crisp": "4"},
+        )
+
+    def test_time_stretch_uses_multichannel_rubberband_path(self) -> None:
+        stereo_audio = np.array(
+            [
+                [0.1, 0.2, 0.3, 0.4],
+                [1.1, 1.2, 1.3, 1.4],
+            ],
+            dtype=np.float32,
+        )
+
+        def fake_time_stretch(y, sr, rate, rbargs=None):
+            self.assertEqual(sr, 44100)
+            self.assertEqual(rate, 1.25)
+            self.assertEqual(rbargs, {"--fine": ""})
+            self.assertEqual(y.shape, (4, 2))
+            np.testing.assert_allclose(y[:, 0], stereo_audio[0])
+            np.testing.assert_allclose(y[:, 1], stereo_audio[1])
+            return y + 2.0
+
+        fake_pyrb = SimpleNamespace(time_stretch=fake_time_stretch)
+
+        with patch("audio_processing.find_executable", return_value="rubberband"), patch(
+            "audio_processing.pyrb",
+            fake_pyrb,
+        ):
+            result = _time_stretch(
+                stereo_audio,
+                44100,
+                1.25,
+                processing_mode=PROCESSING_MODE_HIGH_QUALITY_MIX,
+            )
+
+        self.assertEqual(result.shape, stereo_audio.shape)
+        np.testing.assert_allclose(result, stereo_audio + 2.0)
+
+    def test_pitch_shift_uses_multichannel_rubberband_path(self) -> None:
+        stereo_audio = np.array(
+            [
+                [0.5, 0.6, 0.7],
+                [1.5, 1.6, 1.7],
+            ],
+            dtype=np.float32,
+        )
+
+        def fake_pitch_shift(y, sr, n_steps, rbargs=None):
+            self.assertEqual(sr, 48000)
+            self.assertEqual(n_steps, 3.0)
+            self.assertEqual(rbargs, {"--fine": "", "--centre-focus": "", "--formant": ""})
+            self.assertEqual(y.shape, (3, 2))
+            np.testing.assert_allclose(y[:, 0], stereo_audio[0])
+            np.testing.assert_allclose(y[:, 1], stereo_audio[1])
+            return y * 0.5
+
+        fake_pyrb = SimpleNamespace(pitch_shift=fake_pitch_shift)
+
+        with patch("audio_processing.find_executable", return_value="rubberband"), patch(
+            "audio_processing.pyrb",
+            fake_pyrb,
+        ):
+            result = _pitch_shift(
+                stereo_audio,
+                48000,
+                3.0,
+                processing_mode=PROCESSING_MODE_VOCAL,
+            )
+
+        self.assertEqual(result.shape, stereo_audio.shape)
+        np.testing.assert_allclose(result, stereo_audio * 0.5)
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {

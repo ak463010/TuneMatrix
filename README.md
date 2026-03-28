@@ -30,6 +30,7 @@ What works now:
 - `BPM Range` and `Key Hint` stay editable during running tasks; active analysis is restarted with the latest values, while non-analysis tasks queue the updated song for re-analysis next
 - a global `Key Display` preference switches visible key names between `Auto`, `Prefer Sharps`, and `Prefer Flats`
 - the right sidebar edits the currently selected song or selected songs directly for target BPM, target key, and stem selection
+- the right sidebar now also exposes a per-song `Processing Mode` for tempo/key quality tuning
 - the right sidebar shows a fixed workflow visualization for `Match Key -> Match Tempo -> Separate Stems`
 - the `Separate Stems` workflow card now has a settings button for per-song `Stem Source`
 - stem separation can use either the `Original Track` or the `Latest Available Audio`, per song, with `Latest Available Audio` as the default
@@ -58,6 +59,14 @@ What still depends on external tools:
 - compatible keys are derived from the detected key using a circle-of-fifths style heuristic, not deep harmonic analysis
 
 See [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) for more detail.
+
+Processing modes:
+
+- `Balanced`: solid default for general songs
+- `High Quality Mix`: quality-first setting for full stereo mixes with less center bias
+- `Vocal`: favors vocal timbre preservation and center stability during pitch shifting
+- `Percussive`: favors drum/transient material
+- `Fast Preview`: fastest preview-oriented Rubber Band mode
 
 ## Quick Start
 

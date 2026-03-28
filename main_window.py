@@ -39,6 +39,10 @@ from models import (
     BPM_RANGE_MANUAL_LABEL,
     BPM_RANGE_OPTIONS,
     KEY_OPTIONS,
+    PROCESSING_MODE_DEFAULT,
+    PROCESSING_MODE_DESCRIPTIONS,
+    PROCESSING_MODE_LABELS,
+    PROCESSING_MODE_OPTIONS,
     ProcessingOptions,
     SongRecord,
     SongStatus,
@@ -50,6 +54,7 @@ from models import (
     TABLE_HEADERS,
     WORKFLOW_STEP_LABELS,
     WorkflowStep,
+    normalize_processing_mode,
     normalize_workflow_steps,
 )
 from utils import (
@@ -582,6 +587,13 @@ class MainWindow(QMainWindow):
         self.target_key_combo.setFixedHeight(28)
         self.target_key_combo.currentIndexChanged.connect(self._apply_target_key_to_selection)
 
+        self.processing_mode_combo = NoWheelComboBox()
+        for mode_value, label in PROCESSING_MODE_OPTIONS:
+            self.processing_mode_combo.addItem(label, mode_value)
+        self.processing_mode_combo.setFixedHeight(28)
+        self.processing_mode_combo.currentIndexChanged.connect(self._apply_processing_mode_to_selection)
+        self.processing_mode_combo.currentIndexChanged.connect(self._update_processing_mode_tooltip)
+
         self.output_dir_edit = QLineEdit(default_export_dir())
         self.output_dir_edit.setFixedHeight(28)
         self.output_browse_button = QPushButton("Browse")
@@ -599,6 +611,8 @@ class MainWindow(QMainWindow):
 
         form_layout.addRow("Target BPM", self.target_bpm_edit)
         form_layout.addRow("Target Key", self.target_key_combo)
+        form_layout.addRow("Processing Mode", self.processing_mode_combo)
+        self._update_processing_mode_tooltip()
         layout.addLayout(form_layout)
 
         workflow_label = QLabel("Workflow")
@@ -1571,10 +1585,35 @@ class MainWindow(QMainWindow):
         tempo_source = str(song.processing_tempo_source or STEM_SOURCE_LATEST)
         return tempo_source if tempo_source in STEM_SOURCE_LABELS else STEM_SOURCE_LATEST
 
+    def _format_processing_mode_label(self, processing_mode: Optional[str]) -> str:
+        return PROCESSING_MODE_LABELS.get(str(processing_mode or ""), PROCESSING_MODE_LABELS[PROCESSING_MODE_DEFAULT])
+
+    def _format_processing_mode_description(self, processing_mode: Optional[str]) -> str:
+        normalized_mode = normalize_processing_mode(processing_mode)
+        return PROCESSING_MODE_DESCRIPTIONS.get(
+            normalized_mode,
+            PROCESSING_MODE_DESCRIPTIONS[PROCESSING_MODE_DEFAULT],
+        )
+
+    def _update_processing_mode_tooltip(self) -> None:
+        current_value = self.processing_mode_combo.currentData()
+        if current_value == "__mixed__":
+            tooltip = "Selected songs use different processing modes. Choosing a mode will override all selected songs."
+        else:
+            mode_label = self._format_processing_mode_label(str(current_value or PROCESSING_MODE_DEFAULT))
+            description = self._format_processing_mode_description(str(current_value or PROCESSING_MODE_DEFAULT))
+            tooltip = f"{mode_label}\n{description}"
+        self.processing_mode_combo.setToolTip(tooltip)
+
+    def _song_processing_mode_value(self, song: SongRecord) -> str:
+        processing_mode = str(song.processing_mode or PROCESSING_MODE_DEFAULT)
+        return processing_mode if processing_mode in PROCESSING_MODE_LABELS else PROCESSING_MODE_DEFAULT
+
     def _song_has_processing_settings(self, song: SongRecord) -> bool:
         return bool(
             song.processing_target_bpm is not None
             or song.processing_target_key
+            or self._song_processing_mode_value(song) != PROCESSING_MODE_DEFAULT
             or self._song_tempo_source_value(song) != STEM_SOURCE_LATEST
             or bool(song.processing_selected_stems)
             or self._song_stem_source_value(song) != STEM_SOURCE_LATEST
@@ -1590,12 +1629,15 @@ class MainWindow(QMainWindow):
         stems_label = self._display_stem_list(song.processing_selected_stems)
         tempo_source_label = self._format_stem_source_label(song.processing_tempo_source)
         stem_source_label = self._format_stem_source_label(song.processing_stem_source)
+        processing_mode_label = self._format_processing_mode_label(song.processing_mode)
         bpm_label = f"{song.processing_target_bpm:g}" if song.processing_target_bpm is not None else "Not set"
         key_label = format_key(song.processing_target_key, self.key_display_preference) if song.processing_target_key else "Unchanged"
         return (
             "Song processing\n"
             f"Target BPM: {bpm_label}\n"
             f"Target Key: {key_label}\n"
+            f"Mode: {processing_mode_label}\n"
+            f"Mode Detail: {self._format_processing_mode_description(song.processing_mode)}\n"
             f"Tempo Source: {tempo_source_label}\n"
             f"Stems: {stems_label}\n"
             f"Stem Source: {stem_source_label}"
@@ -1647,6 +1689,7 @@ class MainWindow(QMainWindow):
         for control in [
             self.target_bpm_edit,
             self.target_key_combo,
+            self.processing_mode_combo,
             *self.stem_checkboxes.values(),
         ]:
             control.setEnabled(enabled and self._can_edit_song_bound_controls(selected_songs))
@@ -1659,6 +1702,7 @@ class MainWindow(QMainWindow):
         self._sidebar_binding_in_progress = True
         try:
             self._clear_special_combo_item(self.target_key_combo, "__mixed__")
+            self._clear_special_combo_item(self.processing_mode_combo, "__mixed__")
 
             if not selected_songs:
                 self.editor_scope_label.setText("No song selected")
@@ -1667,6 +1711,7 @@ class MainWindow(QMainWindow):
                 self.target_bpm_edit.clear()
                 self.target_bpm_edit.setPlaceholderText("Select a song")
                 self._set_combo_data(self.target_key_combo, None)
+                self._set_combo_data(self.processing_mode_combo, PROCESSING_MODE_DEFAULT)
                 for checkbox in self.stem_checkboxes.values():
                     self._set_checkbox_state(checkbox, Qt.CheckState.Unchecked)
             elif len(selected_songs) == 1:
@@ -1677,6 +1722,7 @@ class MainWindow(QMainWindow):
                 self.target_bpm_edit.setText("" if song.processing_target_bpm is None else f"{song.processing_target_bpm:g}")
                 self.target_bpm_edit.setPlaceholderText("Not set")
                 self._set_combo_data(self.target_key_combo, song.processing_target_key)
+                self._set_combo_data(self.processing_mode_combo, self._song_processing_mode_value(song))
 
                 selected_stems = set(self._song_selected_stem_values(song))
                 for stem_name, checkbox in self.stem_checkboxes.items():
@@ -1703,6 +1749,12 @@ class MainWindow(QMainWindow):
                     self._set_combo_data(self.target_key_combo, next(iter(key_values)))
                 else:
                     self._set_combo_mixed_state(self.target_key_combo, "__mixed__")
+
+                processing_mode_values = {self._song_processing_mode_value(song) for song in selected_songs}
+                if len(processing_mode_values) == 1:
+                    self._set_combo_data(self.processing_mode_combo, next(iter(processing_mode_values)))
+                else:
+                    self._set_combo_mixed_state(self.processing_mode_combo, "__mixed__")
 
                 stem_sets = [set(self._song_selected_stem_values(song)) for song in selected_songs]
                 for stem_name, checkbox in self.stem_checkboxes.items():
@@ -1831,6 +1883,24 @@ class MainWindow(QMainWindow):
             return
 
         songs = self._apply_processing_field_to_selected_songs(lambda song: setattr(song, "processing_target_key", target_key))
+        if songs:
+            self._load_processing_editor_from_selection()
+
+    def _apply_processing_mode_to_selection(self) -> None:
+        if self._sidebar_binding_in_progress or not self._can_edit_song_bound_controls():
+            return
+
+        processing_mode = self.processing_mode_combo.currentData()
+        if processing_mode == "__mixed__":
+            return
+
+        if not self._confirm_override_for_mixed_selection("Processing Mode", lambda song: self._song_processing_mode_value(song)):
+            self._load_processing_editor_from_selection()
+            return
+
+        songs = self._apply_processing_field_to_selected_songs(
+            lambda song: setattr(song, "processing_mode", processing_mode or PROCESSING_MODE_DEFAULT)
+        )
         if songs:
             self._load_processing_editor_from_selection()
 

@@ -17,7 +17,14 @@ from audio_processing import (
     match_song_tempo,
     separate_song_stems,
 )
-from models import ProcessingOptions, SongRecord, SongStatus, WORKFLOW_STEP_LABELS, bpm_hint_from_label
+from models import (
+    ProcessingOptions,
+    SongRecord,
+    SongStatus,
+    WORKFLOW_STEP_LABELS,
+    bpm_hint_from_label,
+    normalize_processing_mode,
+)
 from models import STEM_SOURCE_LATEST, STEM_SOURCE_ORIGINAL, normalize_stem_source
 from utils import ensure_directory, make_song_cache_dir
 
@@ -212,6 +219,9 @@ class ProcessingWorker(BaseWorker):
     def _effective_target_key(self, song: SongRecord) -> Optional[str]:
         return song.processing_target_key
 
+    def _effective_processing_mode(self, song: SongRecord) -> str:
+        return normalize_processing_mode(song.processing_mode)
+
     def _effective_stem_settings(self, song: SongRecord) -> tuple[Optional[str], Optional[list[str]]]:
         if not song.processing_selected_stems:
             return None, []
@@ -292,7 +302,13 @@ class ProcessingWorker(BaseWorker):
         current_song_source_path = song.processed_path or song.file_path
         working_bpm = song.bpm if resolved_source_path == current_song_source_path else None
         working_song = self._make_temporary_song(resolved_source_path, song.file_name, working_bpm, song.musical_key)
-        result = match_song_tempo(working_song, target_bpm, log_callback=self.log.emit, cancel_callback=self.is_canceled)
+        result = match_song_tempo(
+            working_song,
+            target_bpm,
+            processing_mode=self._effective_processing_mode(song),
+            log_callback=self.log.emit,
+            cancel_callback=self.is_canceled,
+        )
         song.processed_path = str(result["output_path"])
         song.duration = float(result["duration"])
         song.bpm = float(result["bpm"])
@@ -308,7 +324,13 @@ class ProcessingWorker(BaseWorker):
         self.check_canceled()
         self.update_song_status(song, SongStatus.MATCHING_KEY.value)
         self._ensure_song_analysis(song)
-        result = match_song_key(song, target_key, log_callback=self.log.emit, cancel_callback=self.is_canceled)
+        result = match_song_key(
+            song,
+            target_key,
+            processing_mode=self._effective_processing_mode(song),
+            log_callback=self.log.emit,
+            cancel_callback=self.is_canceled,
+        )
         song.processed_path = str(result["output_path"])
         song.duration = float(result["duration"])
         song.musical_key = str(result["key"])
@@ -376,6 +398,7 @@ class ProcessingWorker(BaseWorker):
             result = match_song_tempo(
                 temp_song,
                 target_bpm,
+                processing_mode=self._effective_processing_mode(song),
                 log_callback=self.log.emit,
                 cancel_callback=self.is_canceled,
             )
@@ -411,6 +434,7 @@ class ProcessingWorker(BaseWorker):
             result = match_song_key(
                 temp_song,
                 target_key,
+                processing_mode=self._effective_processing_mode(song),
                 log_callback=self.log.emit,
                 cancel_callback=self.is_canceled,
             )
@@ -455,6 +479,7 @@ class ProcessingWorker(BaseWorker):
                     result = match_song_key(
                         working_song,
                         target_key,
+                        processing_mode=self._effective_processing_mode(song),
                         log_callback=self.log.emit,
                         cancel_callback=self.is_canceled,
                     )
@@ -496,6 +521,7 @@ class ProcessingWorker(BaseWorker):
                     result = match_song_tempo(
                         working_song,
                         target_bpm,
+                        processing_mode=self._effective_processing_mode(song),
                         log_callback=self.log.emit,
                         cancel_callback=self.is_canceled,
                     )

@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from models import (
+    PROCESSING_MODE_PERCUSSIVE,
+    PROCESSING_MODE_VOCAL,
     ProcessingOptions,
     SongRecord,
     SongStatus,
@@ -42,6 +44,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
         song = SongRecord.from_path("song.wav")
         song.processing_target_bpm = 132.0
         song.processing_target_key = "A Minor"
+        song.processing_mode = PROCESSING_MODE_VOCAL
         song.processing_tempo_source = STEM_SOURCE_ORIGINAL
         song.processing_selected_stems = ["Vocals", "Bass"]
         song.processing_stem_source = STEM_SOURCE_ORIGINAL
@@ -50,6 +53,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
 
         self.assertEqual(worker._effective_target_bpm(song), 132.0)
         self.assertEqual(worker._effective_target_key(song), "A Minor")
+        self.assertEqual(worker._effective_processing_mode(song), PROCESSING_MODE_VOCAL)
         self.assertEqual(worker._effective_tempo_source(song), STEM_SOURCE_ORIGINAL)
         self.assertEqual(worker._effective_stem_settings(song), ("All stems", ["Vocals", "Bass"]))
         self.assertEqual(worker._effective_stem_source(song), STEM_SOURCE_ORIGINAL)
@@ -114,6 +118,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
     def test_match_tempo_uses_original_track_when_song_requests_original_source(self) -> None:
         song = SongRecord.from_path("song.wav")
         song.processing_target_bpm = 128.0
+        song.processing_mode = PROCESSING_MODE_PERCUSSIVE
         song.processing_tempo_source = STEM_SOURCE_ORIGINAL
         song.processed_path = "processed.wav"
         song.bpm = 120.0
@@ -126,6 +131,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
             worker._match_tempo(song, 128.0)
 
         self.assertEqual(tempo_mock.call_args.args[0].file_path, "song.wav")
+        self.assertEqual(tempo_mock.call_args.kwargs["processing_mode"], PROCESSING_MODE_PERCUSSIVE)
 
     def test_match_tempo_uses_latest_available_audio_by_default(self) -> None:
         song = SongRecord.from_path("song.wav")
@@ -147,6 +153,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
         song = SongRecord.from_path("song.wav")
         song.processing_target_bpm = 128.0
         song.processing_target_key = "A Minor"
+        song.processing_mode = PROCESSING_MODE_VOCAL
 
         worker = ProcessingWorker([song], ProcessingOptions(), "process_all")
 
@@ -169,6 +176,8 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
 
         tempo_cancel = tempo_mock.call_args.kwargs["cancel_callback"]
         key_cancel = key_mock.call_args.kwargs["cancel_callback"]
+        self.assertEqual(tempo_mock.call_args.kwargs["processing_mode"], PROCESSING_MODE_VOCAL)
+        self.assertEqual(key_mock.call_args.kwargs["processing_mode"], PROCESSING_MODE_VOCAL)
         self.assertIs(tempo_cancel.__self__, worker)
         self.assertIs(key_cancel.__self__, worker)
         self.assertIs(tempo_cancel.__func__, worker.is_canceled.__func__)
@@ -195,7 +204,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
             key_output.write_bytes(b"key")
             tempo_output.write_bytes(b"tempo")
 
-            def fake_key(temp_song: SongRecord, target_key: str, log_callback=None, cancel_callback=None):
+            def fake_key(temp_song: SongRecord, target_key: str, processing_mode=None, log_callback=None, cancel_callback=None):
                 events.append(("match_key", Path(temp_song.file_path).name, target_key))
                 return {
                     "output_path": str(key_output),
@@ -206,7 +215,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
                     "mode_matched": True,
                 }
 
-            def fake_tempo(temp_song: SongRecord, target_bpm: float, log_callback=None, cancel_callback=None):
+            def fake_tempo(temp_song: SongRecord, target_bpm: float, processing_mode=None, log_callback=None, cancel_callback=None):
                 events.append(("match_tempo", Path(temp_song.file_path).name, target_bpm))
                 return {
                     "output_path": str(tempo_output),
@@ -255,7 +264,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
             key_output.write_bytes(b"key")
             tempo_output.write_bytes(b"tempo")
 
-            def fake_key(temp_song: SongRecord, target_key: str, log_callback=None, cancel_callback=None):
+            def fake_key(temp_song: SongRecord, target_key: str, processing_mode=None, log_callback=None, cancel_callback=None):
                 events.append(("match_key", Path(temp_song.file_path).name, target_key))
                 return {
                     "output_path": str(key_output),
@@ -266,7 +275,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
                     "mode_matched": True,
                 }
 
-            def fake_tempo(temp_song: SongRecord, target_bpm: float, log_callback=None, cancel_callback=None):
+            def fake_tempo(temp_song: SongRecord, target_bpm: float, processing_mode=None, log_callback=None, cancel_callback=None):
                 events.append(("match_tempo", Path(temp_song.file_path).name, target_bpm))
                 return {
                     "output_path": str(tempo_output),
@@ -330,7 +339,7 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
                 events.append(("separate", stem_option))
                 return {"stems_dir": str(stems_dir)}
 
-            def fake_key(temp_song: SongRecord, target_key: str, log_callback=None, cancel_callback=None):
+            def fake_key(temp_song: SongRecord, target_key: str, processing_mode=None, log_callback=None, cancel_callback=None):
                 events.append(("match_key", Path(temp_song.file_path).name))
                 output_path = Path(temp_dir) / f"processed_{Path(temp_song.file_path).name}"
                 output_path.write_bytes(b"processed")

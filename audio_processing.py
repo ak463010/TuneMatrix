@@ -46,7 +46,17 @@ except Exception as exc:  # pragma: no cover - dependency dependent
 else:
     TORCH_IMPORT_ERROR = None
 
-from models import BPMAnalysisHint, SongRecord
+from models import (
+    BPMAnalysisHint,
+    PROCESSING_MODE_DEFAULT,
+    PROCESSING_MODE_FAST_PREVIEW,
+    PROCESSING_MODE_HIGH_QUALITY_MIX,
+    PROCESSING_MODE_LABELS,
+    PROCESSING_MODE_PERCUSSIVE,
+    PROCESSING_MODE_VOCAL,
+    SongRecord,
+    normalize_processing_mode,
+)
 from utils import (
     NOTE_NAMES,
     build_output_filename,
@@ -556,10 +566,59 @@ def _run_per_channel(
     return np.vstack(trimmed).astype(np.float32)
 
 
+def _run_rubberband_multichannel(
+    audio: "np.ndarray",
+    processor: Callable[["np.ndarray"], "np.ndarray"],
+    cancel_callback: CancelCallback = None,
+) -> "np.ndarray":
+    audio_array = np.asarray(audio, dtype=np.float32)
+    _check_canceled(cancel_callback)
+
+    if audio_array.ndim == 1:
+        return np.asarray(processor(audio_array), dtype=np.float32)
+
+    # TuneMatrix stores multichannel audio as (channels, samples), while
+    # pyrubberband expects (samples, channels). Keep the full stereo image
+    # together for one Rubber Band pass instead of processing channels
+    # independently.
+    channel_last = np.ascontiguousarray(audio_array.T, dtype=np.float32)
+    processed = np.asarray(processor(channel_last), dtype=np.float32)
+    _check_canceled(cancel_callback)
+
+    if processed.ndim == 1:
+        return np.expand_dims(processed, axis=0).astype(np.float32)
+    return np.ascontiguousarray(processed.T, dtype=np.float32)
+
+
+def _processing_mode_label(processing_mode: str) -> str:
+    return PROCESSING_MODE_LABELS.get(
+        normalize_processing_mode(processing_mode),
+        PROCESSING_MODE_LABELS[PROCESSING_MODE_DEFAULT],
+    )
+
+
+def _rubberband_args_for_processing_mode(processing_mode: str, operation: str) -> dict[str, str]:
+    normalized_mode = normalize_processing_mode(processing_mode)
+
+    if normalized_mode == PROCESSING_MODE_HIGH_QUALITY_MIX:
+        return {"--fine": ""}
+    if normalized_mode == PROCESSING_MODE_VOCAL:
+        rbargs = {"--fine": "", "--centre-focus": ""}
+        if operation == "pitch":
+            rbargs["--formant"] = ""
+        return rbargs
+    if normalized_mode == PROCESSING_MODE_PERCUSSIVE:
+        return {"--fast": "", "--centre-focus": "", "--crisp": "6"}
+    if normalized_mode == PROCESSING_MODE_FAST_PREVIEW:
+        return {"--fast": "", "--crisp": "4"}
+    return {"--fast": "", "--centre-focus": "", "--crisp": "5"}
+
+
 def _time_stretch(
     audio: "np.ndarray",
     sample_rate: int,
     rate: float,
+    processing_mode: str = PROCESSING_MODE_DEFAULT,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> "np.ndarray":
@@ -567,17 +626,21 @@ def _time_stretch(
         raise AudioProcessingError("Time-stretch rate must be greater than zero.")
 
     if pyrb is not None and find_executable("rubberband"):
-        _log(log_callback, "Using Rubber Band for tempo matching.")
-        return _run_per_channel(
+        rbargs = _rubberband_args_for_processing_mode(processing_mode, "tempo")
+        _log(log_callback, f"Using Rubber Band for tempo matching ({_processing_mode_label(processing_mode)}).")
+        return _run_rubberband_multichannel(
             audio,
-            lambda channel: pyrb.time_stretch(channel, sample_rate, rate),
+            lambda multichannel_audio: pyrb.time_stretch(multichannel_audio, sample_rate, rate, rbargs=rbargs),
             cancel_callback=cancel_callback,
         )
 
     if librosa is None:
         raise DependencyError("Neither Rubber Band nor librosa are available for tempo matching.")
 
-    _log(log_callback, "Rubber Band not found. Falling back to librosa for tempo matching.")
+    _log(
+        log_callback,
+        f"Rubber Band not found. Falling back to librosa for tempo matching; {_processing_mode_label(processing_mode)} mode is approximated.",
+    )
     return _run_per_channel(
         audio,
         lambda channel: librosa.effects.time_stretch(channel, rate=rate),
@@ -589,6 +652,7 @@ def _pitch_shift(
     audio: "np.ndarray",
     sample_rate: int,
     semitones: float,
+    processing_mode: str = PROCESSING_MODE_DEFAULT,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> "np.ndarray":
@@ -596,17 +660,21 @@ def _pitch_shift(
         return audio
 
     if pyrb is not None and find_executable("rubberband"):
-        _log(log_callback, "Using Rubber Band for key matching.")
-        return _run_per_channel(
+        rbargs = _rubberband_args_for_processing_mode(processing_mode, "pitch")
+        _log(log_callback, f"Using Rubber Band for key matching ({_processing_mode_label(processing_mode)}).")
+        return _run_rubberband_multichannel(
             audio,
-            lambda channel: pyrb.pitch_shift(channel, sample_rate, semitones),
+            lambda multichannel_audio: pyrb.pitch_shift(multichannel_audio, sample_rate, semitones, rbargs=rbargs),
             cancel_callback=cancel_callback,
         )
 
     if librosa is None:
         raise DependencyError("Neither Rubber Band nor librosa are available for key matching.")
 
-    _log(log_callback, "Rubber Band not found. Falling back to librosa for key matching.")
+    _log(
+        log_callback,
+        f"Rubber Band not found. Falling back to librosa for key matching; {_processing_mode_label(processing_mode)} mode is approximated.",
+    )
     return _run_per_channel(
         audio,
         lambda channel: librosa.effects.pitch_shift(channel, sr=sample_rate, n_steps=semitones),
@@ -682,6 +750,7 @@ def calculate_semitones(source_key: str, target_key: str) -> tuple[int, bool]:
 def match_song_tempo(
     song: SongRecord,
     target_bpm: float,
+    processing_mode: str = PROCESSING_MODE_DEFAULT,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, float | str]:
@@ -711,7 +780,14 @@ def match_song_tempo(
     _check_canceled(cancel_callback)
     audio, sample_rate = _load_audio_for_processing(source_path)
     rate = target_bpm / source_bpm
-    stretched = _time_stretch(audio, sample_rate, rate, log_callback=log_callback, cancel_callback=cancel_callback)
+    stretched = _time_stretch(
+        audio,
+        sample_rate,
+        rate,
+        processing_mode=processing_mode,
+        log_callback=log_callback,
+        cancel_callback=cancel_callback,
+    )
     output_dir = make_song_cache_dir(song.file_path, song.file_name, "processed")
     suffix = f"tempo_{int(round(target_bpm))}bpm"
     output_path = Path(output_dir) / build_output_filename(song.file_name, suffix, ".wav")
@@ -725,6 +801,7 @@ def match_song_tempo(
 def match_song_key(
     song: SongRecord,
     target_key: str,
+    processing_mode: str = PROCESSING_MODE_DEFAULT,
     log_callback: LogCallback = None,
     cancel_callback: CancelCallback = None,
 ) -> dict[str, float | str | bool]:
@@ -776,6 +853,7 @@ def match_song_key(
         audio,
         sample_rate,
         semitones,
+        processing_mode=processing_mode,
         log_callback=log_callback,
         cancel_callback=cancel_callback,
     )

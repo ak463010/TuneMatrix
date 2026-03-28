@@ -44,10 +44,12 @@ This file describes the current implementation status against the requested feat
 - stem separation entry point using Demucs
 - tempo matching
 - key pitch shifting
-- per-song target BPM, target key, and stem selection through the right sidebar
+- per-song target BPM, target key, stem selection, and processing mode through the right sidebar
 - fixed workflow pipeline for `Match Key -> Match Tempo -> Separate Stems`
 - per-selection workflow visualization showing when a step will run, partially run, or be skipped
 - per-song stem-source choice for `Separate Stems` exposed from the workflow card settings button: `Latest Available Audio` or `Original Track`
+- per-song processing mode for tempo/key work with `Balanced`, `High Quality Mix`, `Vocal`, `Percussive`, and `Fast Preview`
+  `High Quality Mix` favors full stereo mixes with less center bias, while `Vocal` favors lead-vocal stability and timbre.
 - global output-folder selection
 - ordered workflow worker pipeline for selected songs
 - separate stems, match tempo, match key, and workflow actions auto-export processed files and stems to the selected output folder

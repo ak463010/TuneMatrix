@@ -111,7 +111,10 @@ After setup:
 3. Leave each song row's `BPM Range` and `Key Hint` columns on `Auto` unless you want to guide analysis.
    `BPM Range` keeps preset dropdown choices and also includes `Enter BPM...` for manual exact BPM input such as `102.474` or manual ranges such as `102.474-110.2`.
 4. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
-5. Run `Match Tempo` or `Match Key`.
-6. Export the result.
+5. In the right sidebar, choose a per-song `Processing Mode` if you want to tune tempo/key quality:
+   `Balanced`, `High Quality Mix`, `Vocal`, `Percussive`, or `Fast Preview`.
+   `High Quality Mix` is the better choice for wide full-song mixes, while `Vocal` keeps lead vocals more centered and stable during pitch shifting.
+6. Run `Match Tempo` or `Match Key`.
+7. Export the result.
 
 Then use [Testing Guide](TESTING.md) to verify the installation.

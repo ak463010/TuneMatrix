@@ -83,6 +83,28 @@ STEM_SOURCE_OPTIONS = [
 ]
 STEM_SOURCE_LABELS = {value: label for value, label in STEM_SOURCE_OPTIONS}
 
+PROCESSING_MODE_BALANCED = "balanced"
+PROCESSING_MODE_HIGH_QUALITY_MIX = "high_quality_mix"
+PROCESSING_MODE_VOCAL = "vocal"
+PROCESSING_MODE_PERCUSSIVE = "percussive"
+PROCESSING_MODE_FAST_PREVIEW = "fast_preview"
+PROCESSING_MODE_DEFAULT = PROCESSING_MODE_BALANCED
+PROCESSING_MODE_OPTIONS = [
+    (PROCESSING_MODE_BALANCED, "Balanced"),
+    (PROCESSING_MODE_HIGH_QUALITY_MIX, "High Quality Mix"),
+    (PROCESSING_MODE_VOCAL, "Vocal"),
+    (PROCESSING_MODE_PERCUSSIVE, "Percussive"),
+    (PROCESSING_MODE_FAST_PREVIEW, "Fast Preview"),
+]
+PROCESSING_MODE_LABELS = {value: label for value, label in PROCESSING_MODE_OPTIONS}
+PROCESSING_MODE_DESCRIPTIONS = {
+    PROCESSING_MODE_BALANCED: "General-purpose mode with a balanced blend of speed, punch, and stereo focus.",
+    PROCESSING_MODE_HIGH_QUALITY_MIX: "Quality-first mode for full stereo mixes with less center bias and more width.",
+    PROCESSING_MODE_VOCAL: "Keeps lead vocals more centered and preserves vocal timbre during pitch shifting.",
+    PROCESSING_MODE_PERCUSSIVE: "Favors drums and transients, with more attack than smoothness.",
+    PROCESSING_MODE_FAST_PREVIEW: "Fastest preview mode with the lowest processing cost.",
+}
+
 
 class SongStatus(str, Enum):
     READY = "Ready"
@@ -125,6 +147,7 @@ class SongRecord:
     processing_override_enabled: bool = False
     processing_target_bpm: Optional[float] = None
     processing_target_key: Optional[str] = None
+    processing_mode: str = PROCESSING_MODE_DEFAULT
     processing_tempo_source: str = STEM_SOURCE_LATEST
     processing_selected_stems: Optional[list[str]] = field(default_factory=list)
     processing_stem_source: str = STEM_SOURCE_LATEST
@@ -147,6 +170,7 @@ class SongRecord:
         has_song_processing = bool(
             self.processing_target_bpm is not None
             or self.processing_target_key
+            or self.processing_mode != PROCESSING_MODE_DEFAULT
             or self.processing_tempo_source != STEM_SOURCE_LATEST
             or bool(self.processing_selected_stems)
             or self.processing_stem_source != STEM_SOURCE_LATEST
@@ -159,6 +183,7 @@ class SongRecord:
             "processing_override_enabled": has_song_processing,
             "processing_target_bpm": self.processing_target_bpm,
             "processing_target_key": self.processing_target_key,
+            "processing_mode": self.processing_mode,
             "processing_tempo_source": self.processing_tempo_source,
             "processing_selected_stems": (
                 list(self.processing_selected_stems)
@@ -192,6 +217,7 @@ class SongRecord:
             processing_override_enabled=bool(data.get("processing_override_enabled", False)),
             processing_target_bpm=data.get("processing_target_bpm"),
             processing_target_key=data.get("processing_target_key"),
+            processing_mode=normalize_processing_mode(data.get("processing_mode")),
             processing_tempo_source=normalize_stem_source(data.get("processing_tempo_source")),
             processing_selected_stems=(
                 list(data.get("processing_selected_stems"))
@@ -226,6 +252,12 @@ def normalize_stem_source(raw_value: Any) -> str:
     if isinstance(raw_value, str) and raw_value in STEM_SOURCE_LABELS:
         return raw_value
     return STEM_SOURCE_LATEST
+
+
+def normalize_processing_mode(raw_value: Any) -> str:
+    if isinstance(raw_value, str) and raw_value in PROCESSING_MODE_LABELS:
+        return raw_value
+    return PROCESSING_MODE_DEFAULT
 
 
 def normalize_workflow_steps(raw_steps: Any) -> list[WorkflowStep]:

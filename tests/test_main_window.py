@@ -13,7 +13,15 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
-from models import ProcessingOptions, SongStatus, STEM_SOURCE_LATEST, STEM_SOURCE_ORIGINAL
+from models import (
+    PROCESSING_MODE_DEFAULT,
+    PROCESSING_MODE_FAST_PREVIEW,
+    PROCESSING_MODE_VOCAL,
+    ProcessingOptions,
+    SongStatus,
+    STEM_SOURCE_LATEST,
+    STEM_SOURCE_ORIGINAL,
+)
 from workers import AnalyzeWorker, ProcessingWorker
 
 
@@ -232,6 +240,7 @@ class MainWindowTests(unittest.TestCase):
         song = window.songs[0]
         song.processing_target_bpm = 128.0
         song.processing_target_key = "A Minor"
+        song.processing_mode = PROCESSING_MODE_VOCAL
         song.processing_tempo_source = STEM_SOURCE_ORIGINAL
         song.processing_selected_stems = ["Vocals", "Bass"]
         song.processing_stem_source = STEM_SOURCE_ORIGINAL
@@ -240,6 +249,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.editor_scope_label.text(), "Editing Song: song_a.wav")
         self.assertEqual(window.target_bpm_edit.text(), "128")
         self.assertEqual(window.target_key_combo.currentData(), "A Minor")
+        self.assertEqual(window.processing_mode_combo.currentData(), PROCESSING_MODE_VOCAL)
         self.assertEqual(window.workflow_step_rows["match_tempo"]["settings_button"].toolTip(), "Tempo Source: Original Track")
         self.assertEqual(window.workflow_step_rows["separate"]["settings_button"].toolTip(), "Stem Source: Original Track")
         self.assertTrue(window.stem_checkboxes["Vocals"].isChecked())
@@ -253,6 +263,8 @@ class MainWindowTests(unittest.TestCase):
         window.songs[1].processing_target_bpm = 145.0
         window.songs[0].processing_target_key = "C Major"
         window.songs[1].processing_target_key = "F Minor"
+        window.songs[0].processing_mode = PROCESSING_MODE_VOCAL
+        window.songs[1].processing_mode = PROCESSING_MODE_FAST_PREVIEW
         window.songs[0].processing_tempo_source = STEM_SOURCE_ORIGINAL
         window.songs[1].processing_tempo_source = STEM_SOURCE_LATEST
         window.songs[0].processing_stem_source = STEM_SOURCE_ORIGINAL
@@ -261,12 +273,14 @@ class MainWindowTests(unittest.TestCase):
         window.song_table.selectRow(0)
         self.assertEqual(window.target_bpm_edit.text(), "120")
         self.assertEqual(window.target_key_combo.currentData(), "C Major")
+        self.assertEqual(window.processing_mode_combo.currentData(), PROCESSING_MODE_VOCAL)
         self.assertEqual(window.workflow_step_rows["match_tempo"]["settings_button"].toolTip(), "Tempo Source: Original Track")
         self.assertEqual(window.workflow_step_rows["separate"]["settings_button"].toolTip(), "Stem Source: Original Track")
 
         window.song_table.selectRow(1)
         self.assertEqual(window.target_bpm_edit.text(), "145")
         self.assertEqual(window.target_key_combo.currentData(), "F Minor")
+        self.assertEqual(window.processing_mode_combo.currentData(), PROCESSING_MODE_FAST_PREVIEW)
         self.assertEqual(window.workflow_step_rows["match_tempo"]["settings_button"].toolTip(), "Tempo Source: Latest Available Audio")
         self.assertEqual(window.workflow_step_rows["separate"]["settings_button"].toolTip(), "Stem Source: Latest Available Audio")
 
@@ -277,6 +291,7 @@ class MainWindowTests(unittest.TestCase):
         window.songs[1].processing_target_bpm = 140.0
         window.songs[0].processing_target_key = "A Minor"
         window.songs[1].processing_target_key = "C Major"
+        window.songs[0].processing_mode = PROCESSING_MODE_VOCAL
         window.songs[0].processing_tempo_source = STEM_SOURCE_ORIGINAL
         window.songs[0].processing_stem_source = STEM_SOURCE_ORIGINAL
 
@@ -286,6 +301,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.target_bpm_edit.text(), "")
         self.assertEqual(window.target_bpm_edit.placeholderText(), "Mixed")
         self.assertEqual(window.target_key_combo.currentText(), "Mixed")
+        self.assertEqual(window.processing_mode_combo.currentText(), "Mixed")
         self.assertEqual(window.workflow_step_rows["match_tempo"]["settings_button"].toolTip(), "Tempo Source: Mixed")
         self.assertEqual(window.workflow_step_rows["separate"]["settings_button"].toolTip(), "Stem Source: Mixed")
 
@@ -342,6 +358,7 @@ class MainWindowTests(unittest.TestCase):
         window.target_bpm_edit.setText("128")
         window.target_bpm_edit.editingFinished.emit()
         window.target_key_combo.setCurrentText("A Minor")
+        window.processing_mode_combo.setCurrentIndex(window.processing_mode_combo.findData(PROCESSING_MODE_VOCAL))
         window._apply_tempo_source_value_to_selection(STEM_SOURCE_ORIGINAL)
         window._apply_stem_source_value_to_selection(STEM_SOURCE_ORIGINAL)
 
@@ -351,6 +368,7 @@ class MainWindowTests(unittest.TestCase):
         song = window.songs[0]
         self.assertEqual(song.processing_target_bpm, 128.0)
         self.assertEqual(song.processing_target_key, "A Minor")
+        self.assertEqual(song.processing_mode, PROCESSING_MODE_VOCAL)
         self.assertEqual(song.processing_tempo_source, STEM_SOURCE_ORIGINAL)
         self.assertEqual(song.processing_selected_stems, ["Vocals", "Bass"])
         self.assertEqual(song.processing_stem_source, STEM_SOURCE_ORIGINAL)
@@ -445,6 +463,19 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.songs[0].processing_tempo_source, STEM_SOURCE_ORIGINAL)
         self.assertEqual(window.songs[1].processing_tempo_source, STEM_SOURCE_ORIGINAL)
 
+    def test_mixed_multi_selection_can_override_processing_mode(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["first.wav", "second.wav"])
+        window.songs[0].processing_mode = PROCESSING_MODE_VOCAL
+        window.songs[1].processing_mode = PROCESSING_MODE_FAST_PREVIEW
+        self._select_rows(window, [0, 1])
+
+        with patch.object(window, "_show_override_confirmation_dialog", return_value=True):
+            window.processing_mode_combo.setCurrentIndex(window.processing_mode_combo.findData(PROCESSING_MODE_VOCAL))
+
+        self.assertEqual(window.songs[0].processing_mode, PROCESSING_MODE_VOCAL)
+        self.assertEqual(window.songs[1].processing_mode, PROCESSING_MODE_VOCAL)
+
     def test_output_folder_stays_global_when_selection_changes(self) -> None:
         window = self._build_window()
         self._import_files(window, ["first.wav", "second.wav"])
@@ -514,6 +545,7 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertTrue(window.target_bpm_edit.isEnabled())
         self.assertTrue(window.target_key_combo.isEnabled())
+        self.assertTrue(window.processing_mode_combo.isEnabled())
         self.assertTrue(all(checkbox.isEnabled() for checkbox in window.stem_checkboxes.values()))
 
         with patch.object(window, "_show_override_confirmation_dialog", return_value=True):
@@ -535,6 +567,7 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertTrue(window.target_bpm_edit.isEnabled())
         self.assertTrue(window.target_key_combo.isEnabled())
+        self.assertTrue(window.processing_mode_combo.isEnabled())
         self.assertTrue(all(checkbox.isEnabled() for checkbox in window.stem_checkboxes.values()))
         self.assertTrue(window.workflow_step_rows["match_tempo"]["settings_button"].isEnabled())
         self.assertTrue(window.workflow_step_rows["separate"]["settings_button"].isEnabled())
@@ -555,6 +588,7 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.target_bpm_edit.isEnabled())
         self.assertFalse(window.target_key_combo.isEnabled())
+        self.assertFalse(window.processing_mode_combo.isEnabled())
         self.assertTrue(all(not checkbox.isEnabled() for checkbox in window.stem_checkboxes.values()))
         self.assertFalse(window.workflow_step_rows["match_tempo"]["settings_button"].isEnabled())
         self.assertFalse(window.workflow_step_rows["separate"]["settings_button"].isEnabled())
@@ -750,6 +784,7 @@ class MainWindowTests(unittest.TestCase):
         song.analysis_key_hint = "G Major"
         song.processing_target_bpm = 126.0
         song.processing_target_key = "A Minor"
+        song.processing_mode = PROCESSING_MODE_VOCAL
         song.processing_tempo_source = STEM_SOURCE_ORIGINAL
         song.processing_selected_stems = ["Vocals", "Bass"]
         song.processing_stem_source = STEM_SOURCE_ORIGINAL
@@ -760,6 +795,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(state["format_version"], PROJECT_STATE_VERSION)
         self.assertEqual(state["songs"][0]["processing_target_bpm"], 126.0)
         self.assertEqual(state["songs"][0]["processing_target_key"], "A Minor")
+        self.assertEqual(state["songs"][0]["processing_mode"], PROCESSING_MODE_VOCAL)
         self.assertEqual(state["songs"][0]["processing_tempo_source"], STEM_SOURCE_ORIGINAL)
         self.assertEqual(state["songs"][0]["processing_selected_stems"], ["Vocals", "Bass"])
         self.assertEqual(state["songs"][0]["processing_stem_source"], STEM_SOURCE_ORIGINAL)
@@ -792,6 +828,7 @@ class MainWindowTests(unittest.TestCase):
                             "file_name": "restored.wav",
                             "processing_target_bpm": 132.0,
                             "processing_target_key": "A Minor",
+                            "processing_mode": PROCESSING_MODE_FAST_PREVIEW,
                             "processing_tempo_source": STEM_SOURCE_ORIGINAL,
                             "processing_selected_stems": ["Vocals", "Bass"],
                             "processing_stem_source": STEM_SOURCE_ORIGINAL,
@@ -816,6 +853,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.key_display_preference, "prefer_flats")
         self.assertEqual(window.target_bpm_edit.text(), "132")
         self.assertEqual(window.target_key_combo.currentData(), "A Minor")
+        self.assertEqual(window.processing_mode_combo.currentData(), PROCESSING_MODE_FAST_PREVIEW)
         self.assertEqual(window.workflow_step_rows["match_tempo"]["settings_button"].toolTip(), "Tempo Source: Original Track")
         self.assertEqual(window.workflow_step_rows["separate"]["settings_button"].toolTip(), "Stem Source: Original Track")
         self.assertTrue(window.stem_checkboxes["Vocals"].isChecked())
@@ -854,6 +892,7 @@ class MainWindowTests(unittest.TestCase):
         migrated_song = window.songs[0]
         self.assertEqual(migrated_song.processing_target_bpm, 128.0)
         self.assertEqual(migrated_song.processing_target_key, "C Minor")
+        self.assertEqual(migrated_song.processing_mode, PROCESSING_MODE_DEFAULT)
         self.assertEqual(migrated_song.processing_tempo_source, STEM_SOURCE_LATEST)
         self.assertEqual(migrated_song.processing_selected_stems, ["Bass", "Drums"])
         self.assertEqual(migrated_song.processing_stem_source, STEM_SOURCE_LATEST)

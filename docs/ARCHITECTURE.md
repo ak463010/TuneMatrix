@@ -19,7 +19,7 @@ Each record stores:
 
 - original file path and file name
 - analyzed metadata such as duration, BPM, detected key, relative key, and compatible keys
-- per-song processing settings such as target BPM, target key, and selected stems
+- per-song processing settings such as target BPM, target key, processing mode, and selected stems
 - per-song stem source stored with the song and edited from the `Separate Stems` workflow card settings
 - current UI status
 - generated stems directory
@@ -85,9 +85,10 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 1. `MainWindow` builds the fixed workflow from the enabled sidebar steps
 2. `ProcessingWorker` executes those enabled steps in order for each selected song
 3. key/tempo steps operate on the current mix until stem separation runs
-4. `Separate Stems` can use either the original track or the latest available workflow audio for each song
-5. after stem separation, later key/tempo steps operate on each generated stem file
-6. final artifacts are auto-exported to the chosen output folder
+4. each song's `Processing Mode` maps to real Rubber Band argument presets for tempo and key processing
+5. `Separate Stems` can use either the original track or the latest available workflow audio for each song
+6. after stem separation, later key/tempo steps operate on each generated stem file
+7. final artifacts are auto-exported to the chosen output folder
 
 ### Match Tempo and Match Key
 
