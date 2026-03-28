@@ -54,6 +54,7 @@ from models import (
     PROCESSING_MODE_LABELS,
     PROCESSING_MODE_PERCUSSIVE,
     PROCESSING_MODE_VOCAL,
+    STEM_OPTION_INSTRUMENTS,
     STEM_OPTION_ALL,
     STEM_OPTION_KARAOKE,
     SongRecord,
@@ -99,14 +100,14 @@ STEM_OUTPUT_FILES = {
     STEM_OPTION_KARAOKE: "karaoke_no_vocals.wav",
     "Drums": "drums.wav",
     "Bass": "bass.wav",
-    "Other": "other.wav",
+    STEM_OPTION_INSTRUMENTS: "instruments.wav",
 }
 INTERNAL_STEM_OUTPUT_FILES = {
     "vocals": "vocals.wav",
     "no_vocals": "karaoke_no_vocals.wav",
     "drums": "drums.wav",
     "bass": "bass.wav",
-    "other": "other.wav",
+    "other": "instruments.wav",
 }
 
 

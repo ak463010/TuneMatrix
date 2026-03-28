@@ -84,12 +84,14 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.analyze_button.isEnabled())
         self.assertFalse(window.export_action.isEnabled())
         self.assertEqual(window.analyze_button.toolTip(), "Select at least one song.")
+        self.assertTrue(all(not row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
 
         window.song_table.selectRow(0)
 
         self.assertTrue(window.remove_button.isEnabled())
         self.assertTrue(window.analyze_button.isEnabled())
         self.assertTrue(window.export_action.isEnabled())
+        self.assertTrue(all(row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
 
     def test_table_header_is_hidden_when_empty_and_visible_with_songs(self) -> None:
         window = self._build_window()
@@ -569,6 +571,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.target_key_combo.isEnabled())
         self.assertTrue(window.processing_mode_combo.isEnabled())
         self.assertTrue(all(checkbox.isEnabled() for checkbox in window.stem_checkboxes.values()))
+        self.assertTrue(all(row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
         self.assertTrue(window.workflow_step_rows["match_tempo"]["settings_button"].isEnabled())
         self.assertTrue(window.workflow_step_rows["separate"]["settings_button"].isEnabled())
 
@@ -590,6 +593,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.target_key_combo.isEnabled())
         self.assertFalse(window.processing_mode_combo.isEnabled())
         self.assertTrue(all(not checkbox.isEnabled() for checkbox in window.stem_checkboxes.values()))
+        self.assertTrue(all(not row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
         self.assertFalse(window.workflow_step_rows["match_tempo"]["settings_button"].isEnabled())
         self.assertFalse(window.workflow_step_rows["separate"]["settings_button"].isEnabled())
 

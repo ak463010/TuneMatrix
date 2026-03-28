@@ -46,6 +46,7 @@ from models import (
     ProcessingOptions,
     SongRecord,
     SongStatus,
+    STEM_OPTION_INSTRUMENTS,
     STEM_OPTION_KARAOKE,
     STEM_SOURCE_LABELS,
     STEM_SOURCE_LATEST,
@@ -85,7 +86,7 @@ STEM_CHECKBOX_OPTIONS = [
     ("Karaoke / No vocals", STEM_OPTION_KARAOKE),
     ("Drums", "Drums"),
     ("Bass", "Bass"),
-    ("Other", "Other"),
+    ("Instruments", STEM_OPTION_INSTRUMENTS),
 ]
 
 
@@ -628,11 +629,6 @@ class MainWindow(QMainWindow):
         self.workflow_panel_layout.setSpacing(4)
         self.workflow_step_rows: dict[str, dict[str, object]] = {}
         layout.addWidget(self.workflow_panel)
-
-        workflow_hint_label = QLabel("Fixed order: Match Key -> Match Tempo -> Separate Stems.")
-        workflow_hint_label.setObjectName("hintLabel")
-        workflow_hint_label.setWordWrap(True)
-        layout.addWidget(workflow_hint_label)
         self._populate_workflow_list()
 
         layout.addStretch(1)
@@ -729,9 +725,9 @@ class MainWindow(QMainWindow):
                 row_widget = QFrame()
                 row_widget.setObjectName("workflowItem")
                 row_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-                row_widget.setMinimumHeight(48)
+                row_widget.setMinimumHeight(56)
                 row_layout = QHBoxLayout(row_widget)
-                row_layout.setContentsMargins(8, 5, 8, 5)
+                row_layout.setContentsMargins(8, 7, 8, 7)
                 row_layout.setSpacing(7)
 
                 index_label = QLabel(str(self.workflow_steps.index(workflow_step) + 1))
@@ -756,7 +752,7 @@ class MainWindow(QMainWindow):
 
                 text_column = QVBoxLayout()
                 text_column.setContentsMargins(0, 0, 0, 0)
-                text_column.setSpacing(1)
+                text_column.setSpacing(2)
 
                 title_label = QLabel(WORKFLOW_STEP_LABELS.get(workflow_step.step_id, workflow_step.step_id))
                 title_label.setObjectName("workflowStepLabel")
@@ -806,6 +802,10 @@ class MainWindow(QMainWindow):
 
     def _set_workflow_step_enabled(self, step_id: str, enabled: bool) -> None:
         if self._workflow_binding_in_progress:
+            return
+        selected_songs = self.selected_songs()
+        if not selected_songs or not self._can_edit_song_bound_controls(selected_songs):
+            self._refresh_workflow_visualization()
             return
 
         for workflow_step in self.workflow_steps:
@@ -919,17 +919,19 @@ class MainWindow(QMainWindow):
             row_widget = row_parts["row"]
             summary_label = row_parts["summary"]
             index_label = row_parts["index"]
+            enabled_checkbox = row_parts["checkbox"]
             settings_button = row_parts.get("settings_button")
+            selected_songs = self.selected_songs()
+            controls_enabled = bool(selected_songs) and self._can_edit_song_bound_controls(selected_songs)
 
             row_widget.setProperty("workflowState", state)
             row_widget.style().unpolish(row_widget)
             row_widget.style().polish(row_widget)
             summary_label.setText(summary)
             index_label.setText(str(index))
+            enabled_checkbox.setEnabled(controls_enabled)
             if settings_button is not None:
-                selected_songs = self.selected_songs()
-                enabled = bool(selected_songs) and self._can_edit_song_bound_controls(selected_songs)
-                settings_button.setEnabled(enabled)
+                settings_button.setEnabled(controls_enabled)
                 if workflow_step.step_id == "match_tempo":
                     source_value, tooltip = self._selected_tempo_source_state()
                     source_prefix = "Tempo Source"
