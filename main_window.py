@@ -46,6 +46,7 @@ from models import (
     ProcessingOptions,
     SongRecord,
     SongStatus,
+    STEM_OPTION_KARAOKE,
     STEM_SOURCE_LABELS,
     STEM_SOURCE_LATEST,
     STEM_SOURCE_OPTIONS,
@@ -55,6 +56,7 @@ from models import (
     WORKFLOW_STEP_LABELS,
     WorkflowStep,
     normalize_processing_mode,
+    normalize_selected_stems,
     normalize_workflow_steps,
 )
 from utils import (
@@ -80,7 +82,7 @@ PROJECT_FILE_FILTER = "TuneMatrix Project (*.tunematrix.json);;JSON Files (*.jso
 ICON_DIR = Path(__file__).resolve().parent / "assets" / "icons"
 STEM_CHECKBOX_OPTIONS = [
     ("Vocals", "Vocals"),
-    ("Instrumental", "Instrumental / No vocals"),
+    ("Karaoke / No vocals", STEM_OPTION_KARAOKE),
     ("Drums", "Drums"),
     ("Bass", "Bass"),
     ("Other", "Other"),
@@ -2058,7 +2060,7 @@ class MainWindow(QMainWindow):
         legacy_target_key = ui_state.get("target_key")
         legacy_selected_stems_raw = ui_state.get("selected_stems")
         legacy_selected_stems = (
-            list(legacy_selected_stems_raw)
+            normalize_selected_stems(list(legacy_selected_stems_raw))
             if isinstance(legacy_selected_stems_raw, list)
             and 0 < len(legacy_selected_stems_raw) < len(self.stem_checkboxes)
             else None

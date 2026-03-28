@@ -54,8 +54,12 @@ from models import (
     PROCESSING_MODE_LABELS,
     PROCESSING_MODE_PERCUSSIVE,
     PROCESSING_MODE_VOCAL,
+    STEM_OPTION_ALL,
+    STEM_OPTION_KARAOKE,
     SongRecord,
     normalize_processing_mode,
+    normalize_selected_stems,
+    normalize_stem_option,
 )
 from utils import (
     NOTE_NAMES,
@@ -92,10 +96,17 @@ STEM_ACTIONS = {"separate", "process_all"}
 WRITE_ACTIONS = {"match_tempo", "match_key", "process_all"}
 STEM_OUTPUT_FILES = {
     "Vocals": "vocals.wav",
-    "Instrumental / No vocals": "no_vocals.wav",
+    STEM_OPTION_KARAOKE: "karaoke_no_vocals.wav",
     "Drums": "drums.wav",
     "Bass": "bass.wav",
     "Other": "other.wav",
+}
+INTERNAL_STEM_OUTPUT_FILES = {
+    "vocals": "vocals.wav",
+    "no_vocals": "karaoke_no_vocals.wav",
+    "drums": "drums.wav",
+    "bass": "bass.wav",
+    "other": "other.wav",
 }
 
 
@@ -911,14 +922,16 @@ def separate_song_stems(
     )
 
     for stem_name, audio_data in stems.items():
-        _save_audio(stem_dir / f"{stem_name}.wav", audio_data, sample_rate)
+        file_name = INTERNAL_STEM_OUTPUT_FILES.get(stem_name, f"{stem_name}.wav")
+        _save_audio(stem_dir / file_name, audio_data, sample_rate)
 
     if selected_stems is not None:
-        normalized_selection = [stem_name for stem_name in selected_stems if stem_name in STEM_OUTPUT_FILES]
-    elif stem_option == "All stems":
+        normalized_selection = [stem_name for stem_name in normalize_selected_stems(selected_stems) if stem_name in STEM_OUTPUT_FILES]
+    elif normalize_stem_option(stem_option) == STEM_OPTION_ALL:
         normalized_selection = list(STEM_OUTPUT_FILES)
     else:
-        normalized_selection = [stem_option] if stem_option in STEM_OUTPUT_FILES else []
+        normalized_stem_option = normalize_stem_option(stem_option)
+        normalized_selection = [normalized_stem_option] if normalized_stem_option in STEM_OUTPUT_FILES else []
 
     if selected_stems is not None and not normalized_selection:
         raise AudioProcessingError(f"No valid stem outputs were selected for {song.file_name}.")

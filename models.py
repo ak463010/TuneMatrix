@@ -20,13 +20,20 @@ TABLE_HEADERS = [
     "Status",
 ]
 
+STEM_OPTION_VOCALS = "Vocals"
+STEM_OPTION_KARAOKE = "Karaoke / No vocals"
+STEM_OPTION_DRUMS = "Drums"
+STEM_OPTION_BASS = "Bass"
+STEM_OPTION_OTHER = "Other"
+STEM_OPTION_ALL = "All stems"
+
 STEM_OPTIONS = [
-    "Vocals",
-    "Instrumental / No vocals",
-    "Drums",
-    "Bass",
-    "Other",
-    "All stems",
+    STEM_OPTION_VOCALS,
+    STEM_OPTION_KARAOKE,
+    STEM_OPTION_DRUMS,
+    STEM_OPTION_BASS,
+    STEM_OPTION_OTHER,
+    STEM_OPTION_ALL,
 ]
 
 KEY_OPTIONS = [
@@ -220,7 +227,7 @@ class SongRecord:
             processing_mode=normalize_processing_mode(data.get("processing_mode")),
             processing_tempo_source=normalize_stem_source(data.get("processing_tempo_source")),
             processing_selected_stems=(
-                list(data.get("processing_selected_stems"))
+                normalize_selected_stems(list(data.get("processing_selected_stems")))
                 if isinstance(data.get("processing_selected_stems"), list)
                 else []
             ),
@@ -258,6 +265,22 @@ def normalize_processing_mode(raw_value: Any) -> str:
     if isinstance(raw_value, str) and raw_value in PROCESSING_MODE_LABELS:
         return raw_value
     return PROCESSING_MODE_DEFAULT
+
+
+def normalize_stem_option(raw_value: Any) -> Optional[str]:
+    if not isinstance(raw_value, str):
+        return None
+    value = raw_value
+    return value if value in STEM_OPTIONS else None
+
+
+def normalize_selected_stems(raw_values: list[Any]) -> list[str]:
+    normalized: list[str] = []
+    for raw_value in raw_values:
+        stem_value = normalize_stem_option(raw_value)
+        if stem_value and stem_value != STEM_OPTION_ALL and stem_value not in normalized:
+            normalized.append(stem_value)
+    return normalized
 
 
 def normalize_workflow_steps(raw_steps: Any) -> list[WorkflowStep]:
