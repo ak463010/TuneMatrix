@@ -32,7 +32,7 @@ This file describes the current implementation status against the requested feat
 - duration detection with `librosa`
 - BPM estimation with `librosa`
 - optional per-song BPM-range hint to reduce half-time/double-time BPM ambiguity
-- BPM range cells accept presets plus manual entries such as `128` or `120-130`
+- BPM range cells accept presets plus manual exact BPM values such as `102.474` and manual ranges such as `102.474-110.2`
 - rough key detection using chroma features
 - optional per-song key-hint dropdown used as a soft tie-breaker when detection is close
 - relative key derived from the detected key

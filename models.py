@@ -110,6 +110,12 @@ class WorkflowStep:
         }
 
 
+@dataclass(frozen=True)
+class BPMAnalysisHint:
+    exact_bpm: Optional[float] = None
+    bpm_range: Optional[tuple[float, float]] = None
+
+
 @dataclass
 class SongRecord:
     file_path: str
@@ -244,13 +250,15 @@ def normalize_workflow_steps(raw_steps: Any) -> list[WorkflowStep]:
     return [WorkflowStep(step_id=step_id, enabled=enabled_by_id[step_id]) for step_id in WORKFLOW_DEFAULT_ORDER]
 
 
-def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:
+def bpm_hint_from_label(label: Optional[str]) -> Optional[BPMAnalysisHint]:
     normalized = str(label or BPM_RANGE_DEFAULT_LABEL).strip()
     if normalized == BPM_RANGE_MANUAL_LABEL:
         return None
     for option_label, option_range in BPM_RANGE_OPTIONS:
         if option_label == normalized:
-            return option_range
+            if option_range is None:
+                return None
+            return BPMAnalysisHint(bpm_range=option_range)
 
     lowered = normalized.lower()
     if lowered == "auto":
@@ -262,13 +270,20 @@ def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:
         start = float(range_match.group(1))
         end = float(range_match.group(2))
         if start > 0 and end > 0 and start != end:
-            return (min(start, end), max(start, end))
+            return BPMAnalysisHint(bpm_range=(min(start, end), max(start, end)))
         return None
 
     single_match = re.fullmatch(r"(\d+(?:\.\d+)?)", cleaned)
     if single_match:
         center = float(single_match.group(1))
         if center > 0:
-            return (center - 0.5, center + 0.5)
+            return BPMAnalysisHint(exact_bpm=center)
 
     return None
+
+
+def bpm_range_from_label(label: Optional[str]) -> Optional[tuple[float, float]]:
+    hint = bpm_hint_from_label(label)
+    if hint is None:
+        return None
+    return hint.bpm_range

@@ -16,6 +16,7 @@ from audio_processing import (
     _export_processed_filename,
     action_base_requirement_message,
     action_runtime_issues,
+    apply_bpm_analysis_hint,
     analyze_audio,
     export_song_artifacts,
     get_compatible_keys,
@@ -25,7 +26,7 @@ from audio_processing import (
     normalize_bpm_to_range_hint,
     separate_song_stems,
 )
-from models import SongRecord, bpm_range_from_label
+from models import BPMAnalysisHint, SongRecord, bpm_hint_from_label, bpm_range_from_label
 
 
 def create_test_wave(path: Path, frequency: float = 440.0, duration: float = 2.0, sample_rate: int = 22050) -> None:
@@ -64,12 +65,24 @@ class AudioProcessingTests(unittest.TestCase):
         self.assertEqual(normalize_bpm_to_range_hint(75.0, (140.0, 160.0)), 150.0)
         self.assertEqual(normalize_bpm_to_range_hint(128.0, None), 128.0)
 
-    def test_bpm_range_from_label_supports_manual_value_and_range(self) -> None:
-        self.assertEqual(bpm_range_from_label("128"), (127.5, 128.5))
-        self.assertEqual(bpm_range_from_label("128 BPM"), (127.5, 128.5))
+    def test_bpm_hint_from_label_supports_exact_value_and_range(self) -> None:
+        self.assertEqual(bpm_hint_from_label("128"), BPMAnalysisHint(exact_bpm=128.0))
+        self.assertEqual(bpm_hint_from_label("102.474 BPM"), BPMAnalysisHint(exact_bpm=102.474))
+        self.assertEqual(bpm_hint_from_label("120-130"), BPMAnalysisHint(bpm_range=(120.0, 130.0)))
+        self.assertEqual(bpm_hint_from_label("130 to 120 BPM"), BPMAnalysisHint(bpm_range=(120.0, 130.0)))
+        self.assertIsNone(bpm_hint_from_label("not-a-range"))
+
+    def test_bpm_range_from_label_only_returns_ranges(self) -> None:
+        self.assertIsNone(bpm_range_from_label("128"))
         self.assertEqual(bpm_range_from_label("120-130"), (120.0, 130.0))
-        self.assertEqual(bpm_range_from_label("130 to 120 BPM"), (120.0, 130.0))
-        self.assertIsNone(bpm_range_from_label("not-a-range"))
+
+    def test_apply_bpm_analysis_hint_uses_exact_manual_bpm(self) -> None:
+        self.assertEqual(apply_bpm_analysis_hint(51.237, BPMAnalysisHint(exact_bpm=102.474)), 102.474)
+        self.assertEqual(apply_bpm_analysis_hint(None, BPMAnalysisHint(exact_bpm=102.0)), 102.0)
+        self.assertEqual(
+            apply_bpm_analysis_hint(75.0, BPMAnalysisHint(bpm_range=(140.0, 160.0))),
+            150.0,
+        )
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {

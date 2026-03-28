@@ -24,7 +24,7 @@ What works now:
 - `wav` and `flac` import and analysis
 - analysis populates detected key plus derived relative and compatible keys
 - analysis supports per-song `BPM Range` and `Key Hint` table columns, both defaulting to `Auto`
-- `BPM Range` keeps preset dropdown choices and includes an explicit `Enter BPM...` manual option for values such as `128` or `120-130`
+- `BPM Range` keeps preset dropdown choices and includes an explicit `Enter BPM...` manual option for exact values such as `102.474` or ranges such as `102.474-110.2`
 - newly imported songs are auto-analyzed in the background
 - changing a song's `BPM Range` or `Key Hint` triggers automatic re-analysis for that song
 - `BPM Range` and `Key Hint` stay editable during running tasks; active analysis is restarted with the latest values, while non-analysis tasks queue the updated song for re-analysis next

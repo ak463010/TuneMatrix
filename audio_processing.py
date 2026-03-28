@@ -46,7 +46,7 @@ except Exception as exc:  # pragma: no cover - dependency dependent
 else:
     TORCH_IMPORT_ERROR = None
 
-from models import SongRecord
+from models import BPMAnalysisHint, SongRecord
 from utils import (
     NOTE_NAMES,
     build_output_filename,
@@ -229,9 +229,25 @@ def normalize_bpm_to_range_hint(
     return min(candidates, key=lambda candidate: (distance_to_range(candidate), abs(candidate - bpm)))
 
 
+def apply_bpm_analysis_hint(
+    bpm: Optional[float],
+    bpm_hint: Optional[BPMAnalysisHint],
+) -> Optional[float]:
+    if bpm_hint is None:
+        return bpm
+
+    if bpm_hint.exact_bpm is not None and bpm_hint.exact_bpm > 0:
+        return bpm_hint.exact_bpm
+
+    if bpm_hint.bpm_range is not None:
+        return normalize_bpm_to_range_hint(bpm, bpm_hint.bpm_range)
+
+    return bpm
+
+
 def analyze_audio(
     file_path: str,
-    bpm_range_hint: Optional[tuple[float, float]] = None,
+    bpm_hint: Optional[BPMAnalysisHint] = None,
     key_hint: Optional[str] = None,
 ) -> dict[str, object]:
     _require_analysis_stack()
@@ -241,7 +257,7 @@ def analyze_audio(
     duration = float(librosa.get_duration(y=audio, sr=sample_rate))
     tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if tempo is not None else None
-    bpm = normalize_bpm_to_range_hint(bpm, bpm_range_hint)
+    bpm = apply_bpm_analysis_hint(bpm, bpm_hint)
     key_name = detect_key(audio, sample_rate, key_hint=key_hint)
     relative_key = get_relative_key(key_name)
     compatible_keys = get_compatible_keys(key_name)

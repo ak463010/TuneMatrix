@@ -109,7 +109,7 @@ After setup:
 1. Launch the app.
 2. Import a `wav` file first.
 3. Leave each song row's `BPM Range` and `Key Hint` columns on `Auto` unless you want to guide analysis.
-   `BPM Range` keeps preset dropdown choices and also includes `Enter BPM...` for manual input such as `128` or `120-130`.
+   `BPM Range` keeps preset dropdown choices and also includes `Enter BPM...` for manual exact BPM input such as `102.474` or manual ranges such as `102.474-110.2`.
 4. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
 5. Run `Match Tempo` or `Match Key`.
 6. Export the result.

@@ -1489,7 +1489,7 @@ class MainWindow(QMainWindow):
         combo.setFixedHeight(20)
         combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         combo.setMaxVisibleItems(len(BPM_RANGE_OPTIONS) + 2)
-        combo.setToolTip("Choose a preset or use Enter BPM... for a manual value like 128 or 120-130.")
+        combo.setToolTip("Choose a preset or use Enter BPM... for an exact BPM like 102.474 or a range like 102.474-110.2.")
         for label, bpm_range in BPM_RANGE_OPTIONS:
             combo.addItem(label, bpm_range)
         combo.insertSeparator(combo.count())
@@ -1526,8 +1526,8 @@ class MainWindow(QMainWindow):
             current_text = song.bpm_range_label if song.bpm_range_label not in {BPM_RANGE_DEFAULT_LABEL, BPM_RANGE_MANUAL_LABEL} else ""
             value, accepted = QInputDialog.getText(
                 self,
-                "Enter BPM Range",
-                "Enter a BPM like 128 or a range like 120-130:",
+                "Enter BPM Hint",
+                "Enter an exact BPM like 102.474 or a range like 102.474-110.2:",
                 text=current_text,
             )
             if accepted:

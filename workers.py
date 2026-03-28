@@ -17,7 +17,7 @@ from audio_processing import (
     match_song_tempo,
     separate_song_stems,
 )
-from models import ProcessingOptions, SongRecord, SongStatus, WORKFLOW_STEP_LABELS, bpm_range_from_label
+from models import ProcessingOptions, SongRecord, SongStatus, WORKFLOW_STEP_LABELS, bpm_hint_from_label
 from models import STEM_SOURCE_LATEST, STEM_SOURCE_ORIGINAL, normalize_stem_source
 from utils import ensure_directory, make_song_cache_dir
 
@@ -98,16 +98,18 @@ class AnalyzeWorker(BaseWorker):
             self.update_song_status(song, SongStatus.ANALYZING.value)
 
             try:
-                bpm_range_hint = bpm_range_from_label(song.bpm_range_label)
-                if bpm_range_hint:
+                bpm_hint = bpm_hint_from_label(song.bpm_range_label)
+                if bpm_hint and bpm_hint.exact_bpm is not None:
+                    self.log.emit(f"{song.file_name}: using exact BPM hint {bpm_hint.exact_bpm:g} BPM.")
+                elif bpm_hint and bpm_hint.bpm_range is not None:
                     self.log.emit(
-                        f"{song.file_name}: using BPM range hint {bpm_range_hint[0]:.0f}-{bpm_range_hint[1]:.0f} BPM."
+                        f"{song.file_name}: using BPM range hint {bpm_hint.bpm_range[0]:g}-{bpm_hint.bpm_range[1]:g} BPM."
                     )
                 if song.analysis_key_hint:
                     self.log.emit(f"{song.file_name}: using key hint {song.analysis_key_hint}.")
                 result = analyze_audio(
                     song.file_path,
-                    bpm_range_hint=bpm_range_hint,
+                    bpm_hint=bpm_hint,
                     key_hint=song.analysis_key_hint,
                 )
                 self.apply_analysis_metadata(song, result)
@@ -245,7 +247,7 @@ class ProcessingWorker(BaseWorker):
         self.log.emit(f"Analyzing missing metadata for {song.file_name}.")
         result = analyze_audio(
             song.processed_path or song.file_path,
-            bpm_range_hint=bpm_range_from_label(song.bpm_range_label),
+            bpm_hint=bpm_hint_from_label(song.bpm_range_label),
             key_hint=song.analysis_key_hint,
         )
         if song.duration is None:

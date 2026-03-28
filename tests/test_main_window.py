@@ -859,19 +859,33 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(migrated_song.processing_stem_source, STEM_SOURCE_LATEST)
         self.assertEqual([step.step_id for step in window.workflow_steps], ["match_key", "match_tempo", "separate"])
 
-    def test_manual_bpm_range_prompt_updates_song_value(self) -> None:
+    def test_manual_bpm_range_prompt_preserves_exact_decimal_text(self) -> None:
         window = self._build_window()
         self._import_files(window, ["manual_prompt.wav"])
         bpm_range_combo = window._table_combo_at(0, 2)
 
         manual_index = next(index for index in range(bpm_range_combo.count()) if bpm_range_combo.itemText(index) == "Enter BPM...")
-        with patch("main_window.QInputDialog.getText", return_value=("128", True)), patch(
+        with patch("main_window.QInputDialog.getText", return_value=("102.474", True)), patch(
             "main_window.action_runtime_issues", return_value=[]
         ), patch.object(window, "start_worker", Mock()):
             bpm_range_combo.setCurrentIndex(manual_index)
 
-        self.assertEqual(window.songs[0].bpm_range_label, "128")
-        self.assertEqual(window._table_combo_at(0, 2).currentText(), "128")
+        self.assertEqual(window.songs[0].bpm_range_label, "102.474")
+        self.assertEqual(window._table_combo_at(0, 2).currentText(), "102.474")
+
+    def test_manual_bpm_range_prompt_preserves_exact_range_text(self) -> None:
+        window = self._build_window()
+        self._import_files(window, ["manual_range.wav"])
+        bpm_range_combo = window._table_combo_at(0, 2)
+
+        manual_index = next(index for index in range(bpm_range_combo.count()) if bpm_range_combo.itemText(index) == "Enter BPM...")
+        with patch("main_window.QInputDialog.getText", return_value=("102.474-110.2", True)), patch(
+            "main_window.action_runtime_issues", return_value=[]
+        ), patch.object(window, "start_worker", Mock()):
+            bpm_range_combo.setCurrentIndex(manual_index)
+
+        self.assertEqual(window.songs[0].bpm_range_label, "102.474-110.2")
+        self.assertEqual(window._table_combo_at(0, 2).currentText(), "102.474-110.2")
 
 
 if __name__ == "__main__":
