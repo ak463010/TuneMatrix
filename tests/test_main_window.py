@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, QItemSelectionModel, Qt
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QGraphicsOpacityEffect
 
 from main_window import MainWindow, PROJECT_STATE_VERSION
 from models import (
@@ -85,6 +85,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.export_action.isEnabled())
         self.assertEqual(window.analyze_button.toolTip(), "Select at least one song.")
         self.assertTrue(all(not row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
+        self.assertEqual(window.target_bpm_edit.cursor().shape(), Qt.CursorShape.ForbiddenCursor)
+        self.assertIsInstance(window.song_bound_section.graphicsEffect(), QGraphicsOpacityEffect)
 
         window.song_table.selectRow(0)
 
@@ -92,6 +94,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.analyze_button.isEnabled())
         self.assertTrue(window.export_action.isEnabled())
         self.assertTrue(all(row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
+        self.assertEqual(window.target_bpm_edit.cursor().shape(), Qt.CursorShape.IBeamCursor)
+        self.assertIsNone(window.song_bound_section.graphicsEffect())
 
     def test_table_header_is_hidden_when_empty_and_visible_with_songs(self) -> None:
         window = self._build_window()
@@ -114,6 +118,8 @@ class MainWindowTests(unittest.TestCase):
         self._import_files(window, ["cursor.wav"])
         bpm_range_combo = window._table_combo_at(0, 2)
         key_hint_combo = window._table_combo_at(0, 3)
+        window.song_table.selectRow(0)
+        self.app.processEvents()
 
         self.assertEqual(window.import_button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
         self.assertEqual(bpm_range_combo.cursor().shape(), Qt.CursorShape.PointingHandCursor)
@@ -574,6 +580,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(all(row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
         self.assertTrue(window.workflow_step_rows["match_tempo"]["settings_button"].isEnabled())
         self.assertTrue(window.workflow_step_rows["separate"]["settings_button"].isEnabled())
+        self.assertIsNone(window.song_bound_section.graphicsEffect())
 
         window.target_bpm_edit.setText("128")
         window.target_bpm_edit.editingFinished.emit()
@@ -596,6 +603,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(all(not row["checkbox"].isEnabled() for row in window.workflow_step_rows.values()))
         self.assertFalse(window.workflow_step_rows["match_tempo"]["settings_button"].isEnabled())
         self.assertFalse(window.workflow_step_rows["separate"]["settings_button"].isEnabled())
+        self.assertEqual(window.target_bpm_edit.cursor().shape(), Qt.CursorShape.ForbiddenCursor)
+        self.assertIsInstance(window.song_bound_section.graphicsEffect(), QGraphicsOpacityEffect)
 
         window.current_worker = None
 

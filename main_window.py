@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QFormLayout,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -552,16 +553,23 @@ class MainWindow(QMainWindow):
 
         self.editor_scope_label = QLabel("No song selected")
         self.editor_scope_label.setObjectName("sectionTitle")
-        layout.addWidget(self.editor_scope_label)
+        self.song_bound_section = QWidget()
+        self.song_bound_section.setObjectName("songBoundSection")
+        song_bound_layout = QVBoxLayout(self.song_bound_section)
+        song_bound_layout.setContentsMargins(0, 0, 0, 0)
+        song_bound_layout.setSpacing(6)
+        layout.addWidget(self.song_bound_section)
+
+        song_bound_layout.addWidget(self.editor_scope_label)
 
         self.editor_note_label = QLabel("Select one or more songs to edit their processing settings.")
         self.editor_note_label.setObjectName("hintLabel")
         self.editor_note_label.setWordWrap(True)
-        layout.addWidget(self.editor_note_label)
+        song_bound_layout.addWidget(self.editor_note_label)
 
         stem_label = QLabel("Stem Selection")
         stem_label.setObjectName("fieldLabel")
-        layout.addWidget(stem_label)
+        song_bound_layout.addWidget(stem_label)
 
         self.stem_checkboxes: dict[str, QCheckBox] = {}
         for display_label, stem_value in STEM_CHECKBOX_OPTIONS:
@@ -570,7 +578,7 @@ class MainWindow(QMainWindow):
             checkbox.setTristate(True)
             checkbox.stateChanged.connect(self._apply_stem_selection_to_selected_songs)
             self.stem_checkboxes[stem_value] = checkbox
-            layout.addWidget(checkbox)
+            song_bound_layout.addWidget(checkbox)
 
         form_layout = QFormLayout()
         form_layout.setSpacing(8)
@@ -616,11 +624,11 @@ class MainWindow(QMainWindow):
         form_layout.addRow("Target Key", self.target_key_combo)
         form_layout.addRow("Processing Mode", self.processing_mode_combo)
         self._update_processing_mode_tooltip()
-        layout.addLayout(form_layout)
+        song_bound_layout.addLayout(form_layout)
 
         workflow_label = QLabel("Workflow")
         workflow_label.setObjectName("fieldLabel")
-        layout.addWidget(workflow_label)
+        song_bound_layout.addWidget(workflow_label)
 
         self.workflow_panel = QFrame()
         self.workflow_panel.setObjectName("workflowFlowCard")
@@ -628,7 +636,7 @@ class MainWindow(QMainWindow):
         self.workflow_panel_layout.setContentsMargins(5, 5, 5, 5)
         self.workflow_panel_layout.setSpacing(4)
         self.workflow_step_rows: dict[str, dict[str, object]] = {}
-        layout.addWidget(self.workflow_panel)
+        song_bound_layout.addWidget(self.workflow_panel)
         self._populate_workflow_list()
 
         layout.addStretch(1)
@@ -929,9 +937,9 @@ class MainWindow(QMainWindow):
             row_widget.style().polish(row_widget)
             summary_label.setText(summary)
             index_label.setText(str(index))
-            enabled_checkbox.setEnabled(controls_enabled)
+            self._set_widget_enabled(enabled_checkbox, controls_enabled)
             if settings_button is not None:
-                settings_button.setEnabled(controls_enabled)
+                self._set_widget_enabled(settings_button, controls_enabled)
                 if workflow_step.step_id == "match_tempo":
                     source_value, tooltip = self._selected_tempo_source_state()
                     source_prefix = "Tempo Source"
@@ -977,15 +985,50 @@ class MainWindow(QMainWindow):
         return panel
 
     def _apply_interaction_cursors(self) -> None:
-        clickable_widgets = (
-            QPushButton,
-            QToolButton,
-            QCheckBox,
-            QComboBox,
-        )
+        clickable_widgets = (QPushButton, QToolButton, QCheckBox, QComboBox)
         for widget_type in clickable_widgets:
             for widget in self.findChildren(widget_type):
-                widget.setCursor(Qt.CursorShape.PointingHandCursor)
+                self._register_enabled_cursor(widget, Qt.CursorShape.PointingHandCursor)
+        for widget in self.findChildren(QLineEdit):
+            self._register_enabled_cursor(widget, Qt.CursorShape.IBeamCursor)
+
+    def _register_enabled_cursor(self, widget: QWidget, cursor_shape: Qt.CursorShape) -> None:
+        widget.setProperty("enabledCursorShape", cursor_shape)
+        if widget.isEnabled():
+            widget.setCursor(cursor_shape)
+
+    def _set_widget_enabled(self, widget: QWidget, enabled: bool) -> None:
+        widget.setEnabled(enabled)
+        if enabled:
+            enabled_cursor_shape = widget.property("enabledCursorShape")
+            if enabled_cursor_shape is not None:
+                widget.setCursor(enabled_cursor_shape)
+            else:
+                widget.unsetCursor()
+            return
+        widget.setCursor(Qt.CursorShape.ForbiddenCursor)
+
+    def _set_control_enabled(self, control: object, enabled: bool) -> None:
+        if isinstance(control, QWidget):
+            self._set_widget_enabled(control, enabled)
+            return
+        control.setEnabled(enabled)
+
+    def _set_song_bound_section_dimmed(self, dimmed: bool) -> None:
+        if not hasattr(self, "song_bound_section"):
+            return
+
+        if dimmed:
+            effect = self.song_bound_section.graphicsEffect()
+            if not isinstance(effect, QGraphicsOpacityEffect):
+                effect = QGraphicsOpacityEffect(self.song_bound_section)
+                self.song_bound_section.setGraphicsEffect(effect)
+            effect.setOpacity(0.52)
+            self.song_bound_section.setCursor(Qt.CursorShape.ForbiddenCursor)
+            return
+
+        self.song_bound_section.setGraphicsEffect(None)
+        self.song_bound_section.unsetCursor()
 
     def _apply_styles(self) -> None:
         checkbox_checked_icon = (ICON_DIR / "checkbox_checked.svg").as_posix()
@@ -1365,7 +1408,7 @@ class MainWindow(QMainWindow):
         has_selection = self.current_worker is None and self._has_song_selection()
 
         for control in selection_controls:
-            control.setEnabled(has_selection)
+            self._set_control_enabled(control, has_selection)
             self._apply_control_hint(control, "" if has_selection else selection_required_message)
 
         for action_name, controls in self._action_controls().items():
@@ -1375,7 +1418,7 @@ class MainWindow(QMainWindow):
                 message = self.action_dependency_messages.get(action_name, "")
             enabled = has_selection and not message
             for control in controls:
-                control.setEnabled(enabled)
+                self._set_control_enabled(control, enabled)
                 self._apply_control_hint(control, message or ("" if has_selection else selection_required_message))
 
     def append_log(self, message: str) -> None:
@@ -1696,13 +1739,14 @@ class MainWindow(QMainWindow):
             self.processing_mode_combo,
             *self.stem_checkboxes.values(),
         ]:
-            control.setEnabled(enabled and self._can_edit_song_bound_controls(selected_songs))
+            self._set_control_enabled(control, enabled and self._can_edit_song_bound_controls(selected_songs))
 
     def _load_processing_editor_from_selection(self) -> None:
         if not hasattr(self, "editor_scope_label"):
             return
 
         selected_songs = self.selected_songs()
+        section_editable = bool(selected_songs) and self._can_edit_song_bound_controls(selected_songs)
         self._sidebar_binding_in_progress = True
         try:
             self._clear_special_combo_item(self.target_key_combo, "__mixed__")
@@ -1772,6 +1816,7 @@ class MainWindow(QMainWindow):
                     self._set_checkbox_state(checkbox, state)
         finally:
             self._sidebar_binding_in_progress = False
+        self._set_song_bound_section_dimmed(not section_editable)
         self._refresh_workflow_visualization()
 
     def _parse_target_bpm_value(self) -> Optional[float]:
@@ -2513,13 +2558,13 @@ class MainWindow(QMainWindow):
         ]
 
         for control in locked_controls:
-            control.setEnabled(not running)
+            self._set_control_enabled(control, not running)
 
-        self.import_button.setEnabled(True)
+        self._set_widget_enabled(self.import_button, True)
         self.import_action.setEnabled(True)
 
-        self.song_table.setEnabled(True)
-        self.cancel_button.setEnabled(running)
+        self._set_widget_enabled(self.song_table, True)
+        self._set_widget_enabled(self.cancel_button, running)
         self.cancel_button.setVisible(running)
         self.cancel_action.setEnabled(running)
         self._load_processing_editor_from_selection()

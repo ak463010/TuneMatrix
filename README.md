@@ -62,8 +62,8 @@ See [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) for more detail.
 
 Processing modes:
 
-- `Balanced`: solid default for general songs
-- `High Quality Mix`: quality-first setting for full stereo mixes with less center bias, more width, and slower high-quality pitch shifting
+- `Balanced`: solid general-purpose option
+- `High Quality Mix`: quality-first setting for full stereo mixes with less center bias, more width, and slower high-quality pitch shifting; this is the default for new songs
 - `Vocal`: favors vocal timbre preservation, center stability, and formant-preserving high-quality pitch shifting
 - `Percussive`: favors drum/transient material
 - `Fast Preview`: fastest preview-oriented Rubber Band mode

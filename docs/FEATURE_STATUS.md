@@ -49,7 +49,7 @@ This file describes the current implementation status against the requested feat
 - per-selection workflow visualization showing when a step will run, partially run, or be skipped
 - per-song stem-source choice for `Separate Stems` exposed from the workflow card settings button: `Latest Available Audio` or `Original Track`
 - per-song processing mode for tempo/key work with `Balanced`, `High Quality Mix`, `Vocal`, `Percussive`, and `Fast Preview`
-  `High Quality Mix` favors full stereo mixes with less center bias and uses Rubber Band's higher-quality pitch path, while `Vocal` favors lead-vocal stability, timbre, and formant preservation.
+  `High Quality Mix` favors full stereo mixes with less center bias and uses Rubber Band's higher-quality pitch path, while `Vocal` favors lead-vocal stability, timbre, and formant preservation. New songs now default to `High Quality Mix`.
 - planned later: more stereo-width-focused tuning for `High Quality Mix` on full mixed songs
 - global output-folder selection
 - ordered workflow worker pipeline for selected songs
