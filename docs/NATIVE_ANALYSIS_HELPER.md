@@ -127,6 +127,12 @@ Build with the vendored Essentia source already in this repo:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\native\analysis_helper\build_windows_msvc.ps1 -EnableEssentia
 ```
 
+Build and stage the helper straight into the bundled runtime layout:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\native\analysis_helper\build_windows_msvc.ps1 -EnableEssentia -StageToTools
+```
+
 That command automatically uses:
 
 - `third_party/essentia-src`
@@ -155,6 +161,14 @@ Verify the built helper:
 .\build\analysis_helper_nmake\tm-analysis-helper.exe --print-contract
 .\build\analysis_helper_nmake\tm-analysis-helper.exe analyze --input .\tmp\key_reference_tracks\01_c_major_bright_loop.wav --output-json
 ```
+
+Stage bundled runtime tools:
+
+```powershell
+python .\scripts\stage_runtime_tools.py
+```
+
+That script stages any discovered helper, `ffmpeg`, `ffprobe`, and `rubberband` binaries into the `tools/` layout used by TuneMatrix at runtime.
 
 Use the helper in TuneMatrix:
 

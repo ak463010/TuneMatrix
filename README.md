@@ -90,6 +90,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
+To stage local runtime binaries into the bundled `tools/` layout used by TuneMatrix:
+
+```powershell
+python .\scripts\stage_runtime_tools.py
+```
+
 On Windows, TuneMatrix stores temporary processed and stem cache files under:
 
 ```text

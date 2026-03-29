@@ -199,6 +199,13 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNone(options.target_key)
         self.assertEqual(options.workflow_steps, ["match_key", "match_tempo", "separate"])
 
+    def test_output_folder_field_is_read_only_display(self) -> None:
+        window = self._build_window()
+
+        self.assertTrue(window.output_dir_edit.isReadOnly())
+        self.assertEqual(window.output_dir_edit.cursor().shape(), Qt.CursorShape.ArrowCursor)
+        self.assertTrue(window.output_browse_button.isEnabled())
+
     def test_workflow_visualization_uses_fixed_order(self) -> None:
         window = self._build_window()
 

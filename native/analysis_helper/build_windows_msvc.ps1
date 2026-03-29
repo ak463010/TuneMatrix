@@ -1,7 +1,8 @@
 param(
     [string]$BuildDir = "build/analysis_helper_nmake",
     [switch]$EnableEssentia,
-    [string]$EssentiaRoot = ""
+    [string]$EssentiaRoot = "",
+    [switch]$StageToTools
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,4 +53,19 @@ $cmdline = 'call "{0}" -arch=x64 -host_arch=x64 >nul && "{1}" {2} && "{1}" --bui
 & $env:ComSpec /d /c $cmdline
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
+}
+
+if ($StageToTools) {
+    $helperExe = Join-Path $buildPath "tm-analysis-helper.exe"
+    if (-not (Test-Path $helperExe)) {
+        throw "Expected helper binary was not found at '$helperExe'."
+    }
+
+    $toolsDir = Join-Path $repoRoot "tools\analysis-helper"
+    if (-not (Test-Path $toolsDir)) {
+        New-Item -ItemType Directory -Path $toolsDir | Out-Null
+    }
+
+    Copy-Item $helperExe (Join-Path $toolsDir "tm-analysis-helper.exe") -Force
+    Write-Host "Staged helper -> $(Join-Path $toolsDir 'tm-analysis-helper.exe')"
 }

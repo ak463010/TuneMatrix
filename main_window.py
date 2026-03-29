@@ -606,6 +606,7 @@ class MainWindow(QMainWindow):
         self.processing_mode_combo.currentIndexChanged.connect(self._update_processing_mode_tooltip)
 
         self.output_dir_edit = QLineEdit(default_export_dir())
+        self.output_dir_edit.setReadOnly(True)
         self.output_dir_edit.setFixedHeight(28)
         self.output_browse_button = QPushButton("Browse")
         self.output_browse_button.setObjectName("inlineButton")
@@ -990,7 +991,8 @@ class MainWindow(QMainWindow):
             for widget in self.findChildren(widget_type):
                 self._register_enabled_cursor(widget, Qt.CursorShape.PointingHandCursor)
         for widget in self.findChildren(QLineEdit):
-            self._register_enabled_cursor(widget, Qt.CursorShape.IBeamCursor)
+            cursor_shape = Qt.CursorShape.ArrowCursor if widget.isReadOnly() else Qt.CursorShape.IBeamCursor
+            self._register_enabled_cursor(widget, cursor_shape)
 
     def _register_enabled_cursor(self, widget: QWidget, cursor_shape: Qt.CursorShape) -> None:
         widget.setProperty("enabledCursorShape", cursor_shape)
