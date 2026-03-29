@@ -3,7 +3,7 @@
 #include <iomanip>
 #include <sstream>
 
-namespace tm::analysis {
+namespace tunematrix::analysis {
 
 namespace {
 
@@ -104,4 +104,4 @@ std::string contract_json() {
     return to_json(result);
 }
 
-}  // namespace tm::analysis
+}  // namespace tunematrix::analysis

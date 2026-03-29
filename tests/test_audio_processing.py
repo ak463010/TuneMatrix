@@ -11,6 +11,7 @@ import numpy as np
 import soundfile as sf
 import torch as th
 
+from analysis_helper import AnalysisCandidate, AnalysisHelperError, NativeAnalysisResult
 from audio_processing import (
     TaskCanceledError,
     _apply_demucs_model_with_cancel,
@@ -50,6 +51,60 @@ def create_test_wave(path: Path, frequency: float = 440.0, duration: float = 2.0
 
 
 class AudioProcessingTests(unittest.TestCase):
+    def test_analyze_audio_uses_native_helper_when_configured(self) -> None:
+        helper_result = NativeAnalysisResult(
+            backend="essentia-cpp",
+            duration=191.0,
+            bpm=110.02,
+            key="F# Major",
+            scale="major",
+            confidence=0.91,
+            candidates=[
+                AnalysisCandidate("F# Major", 0.91),
+                AnalysisCandidate("D# Minor", 0.07),
+            ],
+            error=None,
+        )
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.run_native_analysis_helper",
+            return_value=helper_result,
+        ) as helper_mock, patch(
+            "audio_processing.librosa.load",
+            side_effect=AssertionError("librosa should not run when native helper succeeds"),
+        ):
+            result = analyze_audio("song.wav")
+
+        helper_mock.assert_called_once_with("song.wav")
+        self.assertEqual(result["analysis_backend"], "essentia-cpp")
+        self.assertEqual(result["key"], "F# Major")
+        self.assertAlmostEqual(result["bpm"], 110.02)
+
+    def test_analyze_audio_falls_back_to_librosa_when_helper_fails_in_auto_mode(self) -> None:
+        fake_audio = np.ones(2048, dtype=np.float32)
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "auto"}, clear=False), patch(
+            "audio_processing.run_native_analysis_helper",
+            side_effect=AnalysisHelperError("helper failed"),
+        ), patch(
+            "audio_processing.librosa.load",
+            return_value=(fake_audio, 22050),
+        ) as load_mock, patch(
+            "audio_processing.librosa.get_duration",
+            return_value=30.0,
+        ), patch(
+            "audio_processing.librosa.beat.beat_track",
+            return_value=(np.array([128.0], dtype=np.float32), None),
+        ), patch(
+            "audio_processing.detect_key",
+            return_value="C Major",
+        ):
+            result = analyze_audio("song.wav")
+
+        load_mock.assert_called_once_with("song.wav", sr=None, mono=True)
+        self.assertEqual(result["analysis_backend"], "librosa")
+        self.assertEqual(result["key"], "C Major")
+
     def test_analyze_audio_returns_metadata_for_wav(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             wav_path = Path(temp_dir) / "tone.wav"
@@ -193,6 +248,7 @@ class AudioProcessingTests(unittest.TestCase):
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {
+            "native_analysis_helper": {"available": False, "detail": None},
             "librosa": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},
@@ -212,6 +268,7 @@ class AudioProcessingTests(unittest.TestCase):
 
     def test_action_base_requirement_message_for_separate_only_requires_demucs_stack(self) -> None:
         fake_report = {
+            "native_analysis_helper": {"available": False, "detail": None},
             "librosa": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},

@@ -10,6 +10,7 @@ from analysis_helper import (
     AnalysisHelperError,
     build_helper_command,
     find_native_analysis_helper,
+    helper_search_paths,
     helper_binary_name,
     parse_native_analysis_result,
     run_native_analysis_helper,
@@ -53,6 +54,10 @@ class AnalysisHelperTests(unittest.TestCase):
             helper_path.write_text("stub", encoding="utf-8")
             with patch.dict(os.environ, {"TUNEMATRIX_ANALYSIS_HELPER": str(helper_path)}, clear=False):
                 self.assertEqual(find_native_analysis_helper(), helper_path)
+
+    def test_helper_search_paths_include_windows_nmake_build_dir(self) -> None:
+        paths = helper_search_paths(Path("repo-root"))
+        self.assertIn(Path("repo-root") / "build" / "analysis_helper_nmake" / helper_binary_name(), paths)
 
     def test_run_native_analysis_helper_parses_json_from_subprocess(self) -> None:
         payload = (

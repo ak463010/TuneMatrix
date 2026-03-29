@@ -9,6 +9,8 @@ Current state:
 - defines the JSON result schema
 - builds without Essentia as a stub helper
 - does not replace TuneMatrix's live Python analysis path yet
+- Windows MSVC builds are verified with `NMake Makefiles`
+- first real Essentia version is intended to be WAV-only
 
 Planned role:
 
@@ -16,11 +18,16 @@ Planned role:
 - return BPM/key analysis as JSON
 - be bundled beside the packaged desktop app on Windows, macOS, and Linux
 
-Example configure/build:
+Recommended Windows build:
 
 ```powershell
-cmake -S native/analysis_helper -B build/analysis_helper
-cmake --build build/analysis_helper --config Release
+powershell -NoProfile -ExecutionPolicy Bypass -File .\native\analysis_helper\build_windows_msvc.ps1
+```
+
+Build with Essentia:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\native\analysis_helper\build_windows_msvc.ps1 -EnableEssentia -EssentiaRoot C:\path\to\essentia
 ```
 
 For now, a build without Essentia returns a structured runtime error instead of

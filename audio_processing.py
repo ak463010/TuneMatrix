@@ -5,6 +5,7 @@ import importlib.util
 import shutil
 from pathlib import Path
 from typing import Callable, Optional
+import os
 
 try:
     import librosa
@@ -45,6 +46,8 @@ except Exception as exc:  # pragma: no cover - dependency dependent
     TORCH_IMPORT_ERROR = str(exc)
 else:
     TORCH_IMPORT_ERROR = None
+
+from analysis_helper import AnalysisHelperError, find_native_analysis_helper, run_native_analysis_helper
 
 from models import (
     BPMAnalysisHint,
@@ -109,10 +112,15 @@ INTERNAL_STEM_OUTPUT_FILES = {
     "bass": "bass.wav",
     "other": "instruments.wav",
 }
+ANALYSIS_BACKEND_AUTO = "auto"
+ANALYSIS_BACKEND_LIBROSA = "librosa"
+ANALYSIS_BACKEND_NATIVE_HELPER = "native_helper"
+ANALYSIS_BACKEND_ENV_VAR = "TUNEMATRIX_ANALYSIS_BACKEND"
 
 
 def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
     return {
+        "native_analysis_helper": {"available": find_native_analysis_helper() is not None, "detail": None},
         "librosa": {"available": librosa is not None, "detail": LIBROSA_IMPORT_ERROR},
         "numpy": {"available": np is not None, "detail": NUMPY_IMPORT_ERROR},
         "soundfile": {"available": sf is not None, "detail": SOUND_FILE_IMPORT_ERROR},
@@ -127,6 +135,7 @@ def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
 def dependency_status_lines() -> list[str]:
     report = get_dependency_report()
     ordered_names = [
+        "native_analysis_helper",
         "librosa",
         "numpy",
         "soundfile",
@@ -152,12 +161,21 @@ def _decode_support_required(file_path: str) -> bool:
 def action_runtime_issues(action: str, file_paths: Optional[list[str]] = None) -> list[str]:
     report = get_dependency_report()
     issues: list[str] = []
+    analysis_backend = configured_analysis_backend()
 
     if action in ANALYSIS_ACTIONS:
         if not report["numpy"]["available"]:
             issues.append("NumPy is required for audio analysis.")
-        if not report["librosa"]["available"]:
+        if analysis_backend == ANALYSIS_BACKEND_NATIVE_HELPER and not report["native_analysis_helper"]["available"]:
+            issues.append("Native analysis helper is required for audio analysis.")
+        elif analysis_backend == ANALYSIS_BACKEND_LIBROSA and not report["librosa"]["available"]:
             issues.append("librosa is required for audio analysis.")
+        elif (
+            analysis_backend == ANALYSIS_BACKEND_AUTO
+            and not report["native_analysis_helper"]["available"]
+            and not report["librosa"]["available"]
+        ):
+            issues.append("Neither the native analysis helper nor librosa are available for audio analysis.")
 
     if action in WRITE_ACTIONS and not report["soundfile"]["available"]:
         issues.append("soundfile is required to write processed audio files.")
@@ -174,7 +192,12 @@ def action_runtime_issues(action: str, file_paths: Optional[list[str]] = None) -
         if not report["soundfile"]["available"]:
             issues.append("soundfile is required to write separated stems.")
 
-    if action in ANALYSIS_ACTIONS and _file_paths_need_ffmpeg(file_paths) and not report["ffmpeg"]["available"]:
+    if (
+        action in ANALYSIS_ACTIONS
+        and analysis_backend != ANALYSIS_BACKEND_NATIVE_HELPER
+        and _file_paths_need_ffmpeg(file_paths)
+        and not report["ffmpeg"]["available"]
+    ):
         issues.append("ffmpeg is required to decode mp3 and m4a files.")
 
     return issues
@@ -225,6 +248,48 @@ def _require_decode_support(file_path: str) -> None:
         raise DependencyError(f"ffmpeg is required to decode {suffix} files. Install ffmpeg or use wav/flac.")
 
 
+def normalize_analysis_backend(preference: Optional[str]) -> str:
+    normalized = str(preference or ANALYSIS_BACKEND_AUTO).strip().lower()
+    allowed = {
+        ANALYSIS_BACKEND_AUTO,
+        ANALYSIS_BACKEND_LIBROSA,
+        ANALYSIS_BACKEND_NATIVE_HELPER,
+    }
+    if normalized in allowed:
+        return normalized
+    return ANALYSIS_BACKEND_AUTO
+
+
+def configured_analysis_backend() -> str:
+    return normalize_analysis_backend(os.environ.get(ANALYSIS_BACKEND_ENV_VAR))
+
+
+def _helper_key_hint(result_key: Optional[str], key_hint: Optional[str], candidates: list[object]) -> Optional[str]:
+    if not key_hint or not result_key:
+        return result_key
+
+    score_map: dict[str, float] = {}
+    for candidate in candidates:
+        key_name = getattr(candidate, "key", None)
+        score_value = getattr(candidate, "score", None)
+        if not key_name:
+            continue
+        try:
+            score_map[str(key_name)] = float(score_value)
+        except (TypeError, ValueError):
+            continue
+
+    if key_hint not in score_map or result_key not in score_map:
+        return result_key
+
+    best_score = score_map[result_key]
+    hint_score = score_map[key_hint]
+    margin = max(0.01, abs(best_score) * 0.05)
+    if best_score - hint_score <= margin:
+        return key_hint
+    return result_key
+
+
 def normalize_bpm_to_range_hint(
     bpm: Optional[float],
     bpm_range_hint: Optional[tuple[float, float]],
@@ -267,7 +332,35 @@ def apply_bpm_analysis_hint(
     return bpm
 
 
-def analyze_audio(
+def _analyze_audio_with_native_helper(
+    file_path: str,
+    bpm_hint: Optional[BPMAnalysisHint] = None,
+    key_hint: Optional[str] = None,
+) -> dict[str, object]:
+    helper_result = run_native_analysis_helper(file_path)
+    if helper_result.duration is None:
+        raise AnalysisHelperError("Native analysis helper did not return duration.")
+    if helper_result.bpm is None:
+        raise AnalysisHelperError("Native analysis helper did not return BPM.")
+    if not helper_result.key:
+        raise AnalysisHelperError("Native analysis helper did not return a key.")
+
+    bpm = apply_bpm_analysis_hint(helper_result.bpm, bpm_hint)
+    key_name = _helper_key_hint(helper_result.key, key_hint, helper_result.candidates)
+    relative_key = get_relative_key(key_name)
+    compatible_keys = get_compatible_keys(key_name)
+    return {
+        "duration": helper_result.duration,
+        "bpm": bpm,
+        "key": key_name,
+        "relative_key": relative_key,
+        "compatible_keys": compatible_keys,
+        "analysis_backend": helper_result.backend,
+        "analysis_confidence": helper_result.confidence,
+    }
+
+
+def _analyze_audio_with_librosa(
     file_path: str,
     bpm_hint: Optional[BPMAnalysisHint] = None,
     key_hint: Optional[str] = None,
@@ -289,7 +382,25 @@ def analyze_audio(
         "key": key_name,
         "relative_key": relative_key,
         "compatible_keys": compatible_keys,
+        "analysis_backend": ANALYSIS_BACKEND_LIBROSA,
     }
+
+
+def analyze_audio(
+    file_path: str,
+    bpm_hint: Optional[BPMAnalysisHint] = None,
+    key_hint: Optional[str] = None,
+) -> dict[str, object]:
+    analysis_backend = configured_analysis_backend()
+
+    if analysis_backend in {ANALYSIS_BACKEND_AUTO, ANALYSIS_BACKEND_NATIVE_HELPER}:
+        try:
+            return _analyze_audio_with_native_helper(file_path, bpm_hint=bpm_hint, key_hint=key_hint)
+        except AnalysisHelperError as exc:
+            if analysis_backend == ANALYSIS_BACKEND_NATIVE_HELPER:
+                raise DependencyError(str(exc)) from exc
+
+    return _analyze_audio_with_librosa(file_path, bpm_hint=bpm_hint, key_hint=key_hint)
 
 
 def detect_key(audio: "np.ndarray", sample_rate: int, key_hint: Optional[str] = None) -> Optional[str]:

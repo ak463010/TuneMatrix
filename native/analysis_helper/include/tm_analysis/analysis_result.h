@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace tm::analysis {
+namespace tunematrix::analysis {
 
 struct Candidate {
     std::string key;
@@ -22,4 +22,4 @@ struct AnalysisResult {
     std::optional<std::string> error;
 };
 
-}  // namespace tm::analysis
+}  // namespace tunematrix::analysis

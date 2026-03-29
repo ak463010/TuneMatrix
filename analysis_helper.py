@@ -48,6 +48,8 @@ def helper_search_paths(root: Optional[Path] = None) -> list[Path]:
             repo_root / "tools" / "analysis-helper" / binary_name,
             repo_root / "native" / "analysis_helper" / "build" / "Release" / binary_name,
             repo_root / "native" / "analysis_helper" / "build" / binary_name,
+            repo_root / "build" / "analysis_helper_nmake" / binary_name,
+            repo_root / "build" / "analysis_helper_msvc" / binary_name,
             repo_root / "build" / "analysis_helper" / "Release" / binary_name,
             repo_root / "build" / "analysis_helper" / binary_name,
         ]

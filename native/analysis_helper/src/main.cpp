@@ -29,7 +29,7 @@ int main(int argc, char* argv[]) {
 
     const std::string first_arg = argv[1];
     if (first_arg == "--print-contract") {
-        std::cout << tm::analysis::contract_json();
+        std::cout << tunematrix::analysis::contract_json();
         return kSuccessExitCode;
     }
 
@@ -58,14 +58,14 @@ int main(int argc, char* argv[]) {
     }
 
     if (!std::filesystem::exists(input_path)) {
-        tm::analysis::AnalysisResult result;
+        tunematrix::analysis::AnalysisResult result;
         result.error = "Input file does not exist.";
-        std::cout << tm::analysis::to_json(result);
+        std::cout << tunematrix::analysis::to_json(result);
         return kBadInputExitCode;
     }
 
-    const tm::analysis::AnalysisResult result = tm::analysis::run_analysis(input_path);
-    std::cout << tm::analysis::to_json(result);
+    const tunematrix::analysis::AnalysisResult result = tunematrix::analysis::run_analysis(input_path);
+    std::cout << tunematrix::analysis::to_json(result);
     if (result.error.has_value()) {
         return kDependencyFailureExitCode;
     }

@@ -16,7 +16,10 @@ Current state:
 - the helper binary name is `tm-analysis-helper`
 - the CLI contract is defined
 - the Python bridge lives in [analysis_helper.py](../analysis_helper.py)
-- live app analysis still uses the existing Python `librosa` path
+- live app analysis still uses the existing Python `librosa` path by default
+- the app can optionally try the helper through the `TUNEMATRIX_ANALYSIS_BACKEND` environment variable
+- Windows MSVC builds are currently verified through `NMake Makefiles`
+- the first native Essentia path is designed as WAV-only to keep decoding simple
 
 CLI shape:
 
@@ -43,6 +46,48 @@ Planned JSON shape:
   "error": null
 }
 ```
+
+Backend switching:
+
+- `TUNEMATRIX_ANALYSIS_BACKEND=librosa`
+  always use the current Python `librosa` path
+- `TUNEMATRIX_ANALYSIS_BACKEND=auto`
+  try the native helper first, then fall back to `librosa`
+- `TUNEMATRIX_ANALYSIS_BACKEND=native_helper`
+  require the native helper and fail if it is unavailable
+
+Helper discovery:
+
+- set `TUNEMATRIX_ANALYSIS_HELPER` to an explicit helper executable path
+- otherwise TuneMatrix searches common bundled/build locations through [analysis_helper.py](../analysis_helper.py)
+
+Windows build:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\native\analysis_helper\build_windows_msvc.ps1
+```
+
+That script currently builds the helper into:
+
+```text
+build/analysis_helper_nmake/
+```
+
+If Essentia is installed locally, build the helper with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\native\analysis_helper\build_windows_msvc.ps1 -EnableEssentia -EssentiaRoot C:\path\to\essentia
+```
+
+The CMake helper build looks for:
+
+- `include\essentia\algorithmfactory.h`
+- an Essentia library such as `essentia.lib` or `libessentia.lib`
+
+Note:
+
+- the helper stub has been verified with the `NMake Makefiles` generator on this Windows setup
+- the `Ninja` generator was stalling during CMake compiler-probe steps here, so `NMake` is the current known-good path
 
 Recommended rollout:
 
