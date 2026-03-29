@@ -120,6 +120,7 @@ Or directly:
 - [Setup Guide](docs/SETUP.md)
 - [Testing Guide](docs/TESTING.md)
 - [Architecture Notes](docs/ARCHITECTURE.md)
+- [Native Analysis Helper](docs/NATIVE_ANALYSIS_HELPER.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Feature Status](docs/FEATURE_STATUS.md)
 
@@ -129,6 +130,8 @@ Or directly:
 - [main_window.py](main_window.py): Qt main window and UI wiring
 - [workers.py](workers.py): threaded workers and task orchestration
 - [audio_processing.py](audio_processing.py): analysis, processing, export, and dependency checks
+- [analysis_helper.py](analysis_helper.py): Python bridge for the future native analysis helper
 - [models.py](models.py): shared data models and constants
 - [utils.py](utils.py): formatting, file validation, and helper utilities
+- [native/analysis_helper](native/analysis_helper): C++ helper scaffold for future native BPM/key analysis
 - [tests/](tests): automated tests

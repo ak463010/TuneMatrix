@@ -8,8 +8,13 @@ TuneMatrix is split into a small set of focused modules:
 - [main_window.py](../main_window.py): owns the UI, user interactions, and thread lifecycle
 - [workers.py](../workers.py): background worker objects used from `QThread`
 - [audio_processing.py](../audio_processing.py): audio analysis, transforms, export, and dependency checks
+- [analysis_helper.py](../analysis_helper.py): Python bridge for the future native analysis helper contract
 - [models.py](../models.py): shared dataclasses and constants
 - [utils.py](../utils.py): utility helpers
+
+There is also an early native helper scaffold under:
+
+- [native/analysis_helper](../native/analysis_helper): C++ CLI contract for future native BPM/key analysis
 
 ## Data Model
 
@@ -72,6 +77,12 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 2. worker calls `analyze_audio`
 3. duration, BPM, rough key, relative key, and compatible keys are written back to the `SongRecord`
 4. UI updates the table row
+
+The repo now also includes a native helper scaffold, but it is not active yet:
+
+- [analysis_helper.py](../analysis_helper.py) can locate and invoke a future `tm-analysis-helper` binary
+- [native/analysis_helper](../native/analysis_helper) defines the CLI and JSON contract
+- the live app still uses the existing Python `librosa` analysis path until that helper is implemented and wired in
 
 `MainWindow` now also has an automatic analysis queue:
 
