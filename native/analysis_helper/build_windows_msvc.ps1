@@ -29,11 +29,18 @@ $configureArgs = @(
     "-S", "`"$sourceDir`"",
     "-B", "`"$buildPath`"",
     "-G", "`"NMake Makefiles`"",
+    "-DCMAKE_BUILD_TYPE=Release",
     "-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
 )
 
 if ($EnableEssentia) {
     $configureArgs += "-DTM_ANALYSIS_HELPER_ENABLE_ESSENTIA=ON"
+    if ([string]::IsNullOrWhiteSpace($EssentiaRoot)) {
+        $defaultEssentiaRoot = Join-Path $repoRoot "third_party/essentia-src"
+        if (Test-Path $defaultEssentiaRoot) {
+            $EssentiaRoot = $defaultEssentiaRoot
+        }
+    }
     if (-not [string]::IsNullOrWhiteSpace($EssentiaRoot)) {
         $configureArgs += "-DTM_ANALYSIS_HELPER_ESSENTIA_ROOT=`"$EssentiaRoot`""
     }

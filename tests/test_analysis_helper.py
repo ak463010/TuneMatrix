@@ -59,6 +59,19 @@ class AnalysisHelperTests(unittest.TestCase):
         paths = helper_search_paths(Path("repo-root"))
         self.assertIn(Path("repo-root") / "build" / "analysis_helper_nmake" / helper_binary_name(), paths)
 
+    def test_helper_search_paths_include_bundled_bin_directory(self) -> None:
+        paths = helper_search_paths(Path("repo-root"))
+        self.assertIn(
+            Path("repo-root") / "tools" / "analysis-helper" / "bin" / helper_binary_name(),
+            paths,
+        )
+
+    def test_find_native_analysis_helper_falls_back_to_system_path(self) -> None:
+        with patch("analysis_helper.shutil.which", return_value="/usr/local/bin/tm-analysis-helper"):
+            helper_path = find_native_analysis_helper(Path("repo-root"))
+
+        self.assertEqual(helper_path, Path("/usr/local/bin/tm-analysis-helper"))
+
     def test_run_native_analysis_helper_parses_json_from_subprocess(self) -> None:
         payload = (
             '{'
@@ -91,6 +104,7 @@ class AnalysisHelperTests(unittest.TestCase):
 
         self.assertEqual(result.backend, "essentia-cpp")
         self.assertEqual(result.key, "F# Major")
+        self.assertEqual(result.helper_path, "tm-analysis-helper.exe")
 
     def test_run_native_analysis_helper_raises_when_helper_missing(self) -> None:
         with self.assertRaises(AnalysisHelperError):

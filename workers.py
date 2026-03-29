@@ -29,6 +29,23 @@ from models import STEM_SOURCE_LATEST, STEM_SOURCE_ORIGINAL, normalize_stem_sour
 from utils import ensure_directory, make_song_cache_dir
 
 
+def _analysis_backend_label(result: dict[str, object]) -> str:
+    backend = str(result.get("analysis_backend") or "").strip().lower()
+    if not backend:
+        return "unknown backend"
+    if backend == "librosa":
+        return "librosa fallback"
+    if backend in {"essentia-cpp", "native_helper"} or backend.startswith("essentia"):
+        return "Essentia helper"
+    return backend
+
+
+def _optional_result_text(result: dict[str, object], key: str) -> Optional[str]:
+    value = result.get(key)
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
 class BaseWorker(QObject):
     progress = Signal(int)
     log = Signal(str)
@@ -119,6 +136,20 @@ class AnalyzeWorker(BaseWorker):
                     bpm_hint=bpm_hint,
                     key_hint=song.analysis_key_hint,
                 )
+                backend_label = _analysis_backend_label(result)
+                backend_path = _optional_result_text(result, "analysis_backend_path")
+                ffmpeg_path = _optional_result_text(result, "analysis_ffmpeg_path")
+                fallback_reason = _optional_result_text(result, "analysis_fallback_reason")
+
+                if fallback_reason:
+                    self.log.emit(f"{song.file_name}: falling back to librosa. Reason: {fallback_reason}")
+                if backend_path:
+                    self.log.emit(f"{song.file_name}: analysis backend -> {backend_label} ({backend_path})")
+                else:
+                    self.log.emit(f"{song.file_name}: analysis backend -> {backend_label}")
+                if result.get("analysis_prepared_with_ffmpeg") and ffmpeg_path:
+                    self.log.emit(f"{song.file_name}: prepared analysis audio with ffmpeg -> {ffmpeg_path}")
+
                 self.apply_analysis_metadata(song, result)
                 song.last_error = None
                 if previous_status == SongStatus.EXPORTED.value:
@@ -127,7 +158,7 @@ class AnalyzeWorker(BaseWorker):
                     song.status = SongStatus.ANALYZED.value
                 successful += 1
                 self.log.emit(
-                    f"Analyzed {song.file_name}: {song.duration:.1f}s, {song.bpm:.1f} BPM, {song.musical_key or 'unknown key'}."
+                    f"Analyzed {song.file_name}: {song.duration:.1f}s, {song.bpm:.1f} BPM, {song.musical_key or 'unknown key'} ({_analysis_backend_label(result)})."
                 )
             except Exception as exc:
                 song.status = SongStatus.ERROR.value

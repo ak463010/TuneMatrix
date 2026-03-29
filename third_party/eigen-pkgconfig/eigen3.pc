@@ -1,0 +1,9 @@
+prefix=../../eigen-src
+exec_prefix=${prefix}
+includedir=${prefix}
+
+Name: Eigen3
+Description: Eigen C++ template library
+Version: 3.4.0
+Cflags: -I${includedir}
+Libs:

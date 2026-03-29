@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from utils import (
     KEY_DISPLAY_PREFER_FLATS,
@@ -16,8 +17,11 @@ from utils import (
     format_duration,
     format_key,
     format_key_with_alias,
+    find_executable,
     key_filename_fragment,
     safe_stem,
+    tool_binary_name,
+    tool_search_paths,
     unique_path,
     validate_audio_file,
 )
@@ -82,6 +86,35 @@ class UtilsTests(unittest.TestCase):
             candidate = unique_path(existing)
 
             self.assertEqual(candidate.name, "mix_1.wav")
+
+    def test_find_executable_prefers_bundled_tool_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            bundled = repo_root / "tools" / "ffmpeg" / tool_binary_name("ffmpeg")
+            bundled.parent.mkdir(parents=True, exist_ok=True)
+            bundled.write_text("stub", encoding="utf-8")
+
+            with patch("utils.shutil.which", return_value="C:/Windows/System32/ffmpeg.exe"):
+                resolved = find_executable("ffmpeg", root=repo_root)
+
+            self.assertEqual(resolved, str(bundled))
+
+    def test_tool_search_paths_include_bundled_bin_directory(self) -> None:
+        paths = tool_search_paths("rubberband", root=Path("repo-root"))
+        self.assertIn(
+            Path("repo-root") / "tools" / "rubberband" / "bin" / tool_binary_name("rubberband"),
+            paths,
+        )
+
+    def test_find_executable_uses_path_when_no_bundled_tool_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+
+            with patch("utils.shutil.which", return_value="C:/Tools/ffmpeg/ffmpeg.exe") as which_mock:
+                resolved = find_executable("ffmpeg", root=repo_root)
+
+        self.assertEqual(resolved, "C:/Tools/ffmpeg/ffmpeg.exe")
+        which_mock.assert_called()
 
 
 if __name__ == "__main__":

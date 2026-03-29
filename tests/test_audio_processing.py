@@ -13,6 +13,7 @@ import torch as th
 
 from analysis_helper import AnalysisCandidate, AnalysisHelperError, NativeAnalysisResult
 from audio_processing import (
+    DependencyError,
     TaskCanceledError,
     _apply_demucs_model_with_cancel,
     _export_processed_filename,
@@ -28,6 +29,7 @@ from audio_processing import (
     get_relative_key,
     match_song_key,
     match_song_tempo,
+    normalize_key_name,
     normalize_bpm_to_range_hint,
     separate_song_stems,
 )
@@ -80,6 +82,31 @@ class AudioProcessingTests(unittest.TestCase):
         self.assertEqual(result["key"], "F# Major")
         self.assertAlmostEqual(result["bpm"], 110.02)
 
+    def test_analyze_audio_normalizes_flat_keys_from_native_helper(self) -> None:
+        helper_result = NativeAnalysisResult(
+            backend="essentia-cpp",
+            duration=191.0,
+            bpm=110.02,
+            key="Eb Major",
+            scale="major",
+            confidence=0.91,
+            candidates=[
+                AnalysisCandidate("Eb Major", 0.91),
+                AnalysisCandidate("C Minor", 0.07),
+            ],
+            error=None,
+        )
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.run_native_analysis_helper",
+            return_value=helper_result,
+        ):
+            result = analyze_audio("song.wav", key_hint="D# Major")
+
+        self.assertEqual(result["key"], "D# Major")
+        self.assertEqual(result["relative_key"], "C Minor")
+        self.assertEqual(result["analysis_backend"], "essentia-cpp")
+
     def test_analyze_audio_falls_back_to_librosa_when_helper_fails_in_auto_mode(self) -> None:
         fake_audio = np.ones(2048, dtype=np.float32)
 
@@ -104,6 +131,56 @@ class AudioProcessingTests(unittest.TestCase):
         load_mock.assert_called_once_with("song.wav", sr=None, mono=True)
         self.assertEqual(result["analysis_backend"], "librosa")
         self.assertEqual(result["key"], "C Major")
+        self.assertEqual(result["analysis_fallback_reason"], "helper failed")
+
+    def test_analyze_audio_native_helper_converts_non_wav_with_ffmpeg(self) -> None:
+        helper_result = NativeAnalysisResult(
+            backend="essentia-cpp",
+            duration=191.0,
+            bpm=110.02,
+            key="F# Major",
+            scale="major",
+            confidence=0.91,
+            candidates=[AnalysisCandidate("F# Major", 0.91)],
+            error=None,
+        )
+
+        def fake_ffmpeg_run(command, check, capture_output, text, timeout):
+            self.assertIn("ffmpeg", command[0].lower())
+            output_path = Path(command[-1])
+            output_path.write_bytes(b"RIFF")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.find_executable",
+            side_effect=lambda name: "ffmpeg.exe" if name == "ffmpeg" else None,
+        ), patch(
+            "audio_processing.subprocess.run",
+            side_effect=fake_ffmpeg_run,
+        ), patch(
+            "audio_processing.run_native_analysis_helper",
+            return_value=helper_result,
+        ) as helper_mock:
+            result = analyze_audio("song.mp3")
+
+        helper_arg = helper_mock.call_args.args[0]
+        self.assertTrue(str(helper_arg).endswith(".wav"))
+        self.assertNotEqual(helper_arg, "song.mp3")
+        self.assertEqual(result["analysis_backend"], "essentia-cpp")
+        self.assertEqual(result["key"], "F# Major")
+        self.assertTrue(result["analysis_prepared_with_ffmpeg"])
+        self.assertEqual(result["analysis_ffmpeg_path"], "ffmpeg.exe")
+
+    def test_analyze_audio_native_helper_requires_ffmpeg_for_non_wav(self) -> None:
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.find_executable",
+            return_value=None,
+        ):
+            with self.assertRaisesRegex(
+                DependencyError,
+                "ffmpeg is required to prepare non-WAV files for native analysis",
+            ):
+                analyze_audio("song.flac")
 
     def test_analyze_audio_returns_metadata_for_wav(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -121,6 +198,8 @@ class AudioProcessingTests(unittest.TestCase):
     def test_key_relationship_helpers_return_relative_and_compatible_keys(self) -> None:
         self.assertEqual(get_relative_key("C Major"), "A Minor")
         self.assertEqual(get_relative_key("A Minor"), "C Major")
+        self.assertEqual(get_relative_key("Eb Major"), "C Minor")
+        self.assertEqual(normalize_key_name("Bb Minor"), "A# Minor")
         self.assertEqual(
             get_compatible_keys("C Major"),
             ["A Minor", "G Major", "E Minor", "F Major", "D Minor"],
@@ -265,6 +344,27 @@ class AudioProcessingTests(unittest.TestCase):
 
         self.assertIn("ffmpeg is required to decode mp3 and m4a files.", issues)
         self.assertEqual(no_issues, [])
+
+    def test_action_runtime_issues_flags_missing_ffmpeg_for_native_helper_non_wav(self) -> None:
+        fake_report = {
+            "native_analysis_helper": {"available": True, "detail": None},
+            "librosa": {"available": True, "detail": None},
+            "numpy": {"available": True, "detail": None},
+            "soundfile": {"available": True, "detail": None},
+            "pyrubberband": {"available": True, "detail": None},
+            "torch": {"available": True, "detail": None},
+            "rubberband": {"available": True, "detail": None},
+            "ffmpeg": {"available": False, "detail": None},
+            "demucs": {"available": True, "detail": None},
+        }
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.get_dependency_report",
+            return_value=fake_report,
+        ):
+            issues = action_runtime_issues("analyze", ["track.flac"])
+
+        self.assertIn("ffmpeg is required to prepare non-WAV files for native analysis.", issues)
 
     def test_action_base_requirement_message_for_separate_only_requires_demucs_stack(self) -> None:
         fake_report = {

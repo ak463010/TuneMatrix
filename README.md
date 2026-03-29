@@ -22,6 +22,7 @@ This repository is currently an MVP with tests and documentation.
 What works now:
 
 - `wav` and `flac` import and analysis
+- analysis now prefers the native Essentia helper automatically when it is available, with `librosa` fallback if the helper is unavailable or fails in `auto` mode
 - analysis populates detected key plus derived relative and compatible keys
 - analysis supports per-song `BPM Range` and `Key Hint` table columns, both defaulting to `Auto`
 - `BPM Range` keeps preset dropdown choices and includes an explicit `Enter BPM...` manual option for exact values such as `102.474` or ranges such as `102.474-110.2`
@@ -101,6 +102,20 @@ The default export folder is:
 <project>\exports\
 ```
 
+For packaged builds, TuneMatrix now prefers bundled executables before `PATH`. The intended cross-platform runtime layout is:
+
+```text
+tools/
+  analysis-helper/
+    tm-analysis-helper(.exe)
+  ffmpeg/
+    ffmpeg(.exe)
+  rubberband/
+    rubberband(.exe)
+```
+
+On Windows the bundled binaries use `.exe`. On macOS and Linux the same folders are used, but the executables keep their normal names without `.exe`.
+
 ## Run Tests
 
 Use the provided batch file:
@@ -130,8 +145,8 @@ Or directly:
 - [main_window.py](main_window.py): Qt main window and UI wiring
 - [workers.py](workers.py): threaded workers and task orchestration
 - [audio_processing.py](audio_processing.py): analysis, processing, export, and dependency checks
-- [analysis_helper.py](analysis_helper.py): Python bridge for the future native analysis helper
+- [analysis_helper.py](analysis_helper.py): Python bridge for the native Essentia analysis helper
 - [models.py](models.py): shared data models and constants
 - [utils.py](utils.py): formatting, file validation, and helper utilities
-- [native/analysis_helper](native/analysis_helper): C++ helper scaffold for future native BPM/key analysis
+- [native/analysis_helper](native/analysis_helper): C++ helper for native Essentia BPM/key analysis
 - [tests/](tests): automated tests

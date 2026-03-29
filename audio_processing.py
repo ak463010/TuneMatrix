@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from functools import lru_cache
 import importlib.util
+import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Callable, Optional
 import os
@@ -116,18 +119,35 @@ ANALYSIS_BACKEND_AUTO = "auto"
 ANALYSIS_BACKEND_LIBROSA = "librosa"
 ANALYSIS_BACKEND_NATIVE_HELPER = "native_helper"
 ANALYSIS_BACKEND_ENV_VAR = "TUNEMATRIX_ANALYSIS_BACKEND"
+ENHARMONIC_ROOT_MAP = {
+    "CB": "B",
+    "B#": "C",
+    "DB": "C#",
+    "EB": "D#",
+    "FB": "E",
+    "E#": "F",
+    "GB": "F#",
+    "AB": "G#",
+    "BB": "A#",
+}
 
 
 def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
+    native_helper_path = find_native_analysis_helper()
+    rubberband_path = find_executable("rubberband")
+    ffmpeg_path = find_executable("ffmpeg")
     return {
-        "native_analysis_helper": {"available": find_native_analysis_helper() is not None, "detail": None},
+        "native_analysis_helper": {
+            "available": native_helper_path is not None,
+            "detail": str(native_helper_path) if native_helper_path is not None else None,
+        },
         "librosa": {"available": librosa is not None, "detail": LIBROSA_IMPORT_ERROR},
         "numpy": {"available": np is not None, "detail": NUMPY_IMPORT_ERROR},
         "soundfile": {"available": sf is not None, "detail": SOUND_FILE_IMPORT_ERROR},
         "pyrubberband": {"available": pyrb is not None, "detail": PYRUBBERBAND_IMPORT_ERROR},
         "torch": {"available": importlib.util.find_spec("torch") is not None, "detail": None},
-        "rubberband": {"available": find_executable("rubberband") is not None, "detail": None},
-        "ffmpeg": {"available": find_executable("ffmpeg") is not None, "detail": None},
+        "rubberband": {"available": rubberband_path is not None, "detail": rubberband_path},
+        "ffmpeg": {"available": ffmpeg_path is not None, "detail": ffmpeg_path},
         "demucs": {"available": importlib.util.find_spec("demucs") is not None, "detail": None},
     }
 
@@ -158,6 +178,10 @@ def _decode_support_required(file_path: str) -> bool:
     return Path(file_path).suffix.lower() in COMPRESSED_FORMATS
 
 
+def _native_helper_requires_ffmpeg(file_path: str) -> bool:
+    return Path(file_path).suffix.lower() != ".wav"
+
+
 def action_runtime_issues(action: str, file_paths: Optional[list[str]] = None) -> list[str]:
     report = get_dependency_report()
     issues: list[str] = []
@@ -176,6 +200,13 @@ def action_runtime_issues(action: str, file_paths: Optional[list[str]] = None) -
             and not report["librosa"]["available"]
         ):
             issues.append("Neither the native analysis helper nor librosa are available for audio analysis.")
+        if (
+            analysis_backend == ANALYSIS_BACKEND_NATIVE_HELPER
+            and file_paths
+            and any(_native_helper_requires_ffmpeg(path) for path in file_paths)
+            and not report["ffmpeg"]["available"]
+        ):
+            issues.append("ffmpeg is required to prepare non-WAV files for native analysis.")
 
     if action in WRITE_ACTIONS and not report["soundfile"]["available"]:
         issues.append("soundfile is required to write processed audio files.")
@@ -264,30 +295,120 @@ def configured_analysis_backend() -> str:
     return normalize_analysis_backend(os.environ.get(ANALYSIS_BACKEND_ENV_VAR))
 
 
+def normalize_key_name(key_name: Optional[str]) -> Optional[str]:
+    if not key_name:
+        return None
+
+    normalized = " ".join(str(key_name).strip().split())
+    if not normalized:
+        return None
+
+    if " " not in normalized:
+        return normalized
+
+    note_name, mode = normalized.rsplit(" ", 1)
+    normalized_note = note_name.strip().replace("♭", "b").replace("♯", "#")
+    uppercase_note = normalized_note.upper()
+    canonical_note = ENHARMONIC_ROOT_MAP.get(uppercase_note, uppercase_note)
+    if len(canonical_note) > 1:
+        canonical_note = canonical_note[0] + canonical_note[1:].replace("B", "b")
+    canonical_mode = mode.strip().lower()
+    if canonical_mode == "major":
+        canonical_mode = "Major"
+    elif canonical_mode == "minor":
+        canonical_mode = "Minor"
+    else:
+        canonical_mode = canonical_mode[:1].upper() + canonical_mode[1:].lower()
+
+    return f"{canonical_note} {canonical_mode}"
+
+
 def _helper_key_hint(result_key: Optional[str], key_hint: Optional[str], candidates: list[object]) -> Optional[str]:
-    if not key_hint or not result_key:
-        return result_key
+    normalized_result_key = normalize_key_name(result_key)
+    normalized_key_hint = normalize_key_name(key_hint)
+    if not normalized_key_hint or not normalized_result_key:
+        return normalized_result_key
 
     score_map: dict[str, float] = {}
     for candidate in candidates:
         key_name = getattr(candidate, "key", None)
         score_value = getattr(candidate, "score", None)
-        if not key_name:
+        normalized_candidate_key = normalize_key_name(key_name)
+        if not normalized_candidate_key:
             continue
         try:
-            score_map[str(key_name)] = float(score_value)
+            score_map[normalized_candidate_key] = float(score_value)
         except (TypeError, ValueError):
             continue
 
-    if key_hint not in score_map or result_key not in score_map:
-        return result_key
+    if normalized_key_hint not in score_map or normalized_result_key not in score_map:
+        return normalized_result_key
 
-    best_score = score_map[result_key]
-    hint_score = score_map[key_hint]
+    best_score = score_map[normalized_result_key]
+    hint_score = score_map[normalized_key_hint]
     margin = max(0.01, abs(best_score) * 0.05)
     if best_score - hint_score <= margin:
-        return key_hint
-    return result_key
+        return normalized_key_hint
+    return normalized_result_key
+
+
+@contextmanager
+def _native_helper_input_path(file_path: str):
+    source_path = Path(file_path)
+    if not _native_helper_requires_ffmpeg(file_path):
+        yield {
+            "input_path": str(source_path),
+            "prepared_with_ffmpeg": False,
+            "ffmpeg_path": None,
+        }
+        return
+
+    ffmpeg = find_executable("ffmpeg")
+    if ffmpeg is None:
+        raise AnalysisHelperError("ffmpeg is required to prepare non-WAV files for native analysis.")
+
+    with tempfile.TemporaryDirectory(prefix="tunematrix_analysis_") as temp_dir:
+        converted_path = Path(temp_dir) / build_output_filename(source_path.name, "analysis", ".wav")
+        command = [
+            ffmpeg,
+            "-v",
+            "error",
+            "-nostdin",
+            "-y",
+            "-i",
+            str(source_path),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            str(converted_path),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60.0,
+            )
+        except OSError as exc:
+            raise AnalysisHelperError(f"Failed to start ffmpeg for native analysis: {exc}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AnalysisHelperError("ffmpeg timed out while preparing audio for native analysis.") from exc
+
+        if completed.returncode != 0 or not converted_path.is_file():
+            detail = (completed.stderr or completed.stdout or "").strip()
+            if not detail:
+                detail = f"ffmpeg exited with code {completed.returncode}."
+            raise AnalysisHelperError(f"ffmpeg failed to prepare analysis audio: {detail}")
+
+        yield {
+            "input_path": str(converted_path),
+            "prepared_with_ffmpeg": True,
+            "ffmpeg_path": ffmpeg,
+        }
 
 
 def normalize_bpm_to_range_hint(
@@ -337,7 +458,8 @@ def _analyze_audio_with_native_helper(
     bpm_hint: Optional[BPMAnalysisHint] = None,
     key_hint: Optional[str] = None,
 ) -> dict[str, object]:
-    helper_result = run_native_analysis_helper(file_path)
+    with _native_helper_input_path(file_path) as helper_request:
+        helper_result = run_native_analysis_helper(helper_request["input_path"])
     if helper_result.duration is None:
         raise AnalysisHelperError("Native analysis helper did not return duration.")
     if helper_result.bpm is None:
@@ -347,6 +469,8 @@ def _analyze_audio_with_native_helper(
 
     bpm = apply_bpm_analysis_hint(helper_result.bpm, bpm_hint)
     key_name = _helper_key_hint(helper_result.key, key_hint, helper_result.candidates)
+    if not key_name:
+        raise AnalysisHelperError("Native analysis helper returned an unsupported key.")
     relative_key = get_relative_key(key_name)
     compatible_keys = get_compatible_keys(key_name)
     return {
@@ -356,7 +480,10 @@ def _analyze_audio_with_native_helper(
         "relative_key": relative_key,
         "compatible_keys": compatible_keys,
         "analysis_backend": helper_result.backend,
+        "analysis_backend_path": helper_result.helper_path,
         "analysis_confidence": helper_result.confidence,
+        "analysis_prepared_with_ffmpeg": helper_request["prepared_with_ffmpeg"],
+        "analysis_ffmpeg_path": helper_request["ffmpeg_path"],
     }
 
 
@@ -364,6 +491,7 @@ def _analyze_audio_with_librosa(
     file_path: str,
     bpm_hint: Optional[BPMAnalysisHint] = None,
     key_hint: Optional[str] = None,
+    fallback_reason: Optional[str] = None,
 ) -> dict[str, object]:
     _require_analysis_stack()
     _require_decode_support(file_path)
@@ -383,6 +511,8 @@ def _analyze_audio_with_librosa(
         "relative_key": relative_key,
         "compatible_keys": compatible_keys,
         "analysis_backend": ANALYSIS_BACKEND_LIBROSA,
+        "analysis_backend_path": None,
+        "analysis_fallback_reason": fallback_reason,
     }
 
 
@@ -399,6 +529,13 @@ def analyze_audio(
         except AnalysisHelperError as exc:
             if analysis_backend == ANALYSIS_BACKEND_NATIVE_HELPER:
                 raise DependencyError(str(exc)) from exc
+            fallback_reason = str(exc)
+            return _analyze_audio_with_librosa(
+                file_path,
+                bpm_hint=bpm_hint,
+                key_hint=key_hint,
+                fallback_reason=fallback_reason,
+            )
 
     return _analyze_audio_with_librosa(file_path, bpm_hint=bpm_hint, key_hint=key_hint)
 
@@ -812,9 +949,10 @@ def _pitch_shift(
 
 
 def _split_key_name(key_name: str) -> tuple[str, str]:
-    if not key_name or " " not in key_name:
+    normalized_key_name = normalize_key_name(key_name)
+    if not normalized_key_name or " " not in normalized_key_name:
         raise AudioProcessingError(f"Invalid key name: {key_name}")
-    note_name, mode = key_name.rsplit(" ", 1)
+    note_name, mode = normalized_key_name.rsplit(" ", 1)
     if note_name not in NOTE_NAMES:
         raise AudioProcessingError(f"Unsupported key root: {note_name}")
     if mode not in {"Major", "Minor"}:

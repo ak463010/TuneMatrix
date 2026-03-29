@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import tempfile
@@ -250,8 +251,46 @@ def copy_directory_to_directory(source_dir: str | Path, destination_dir: str | P
     return str(target_path)
 
 
-def find_executable(name: str) -> Optional[str]:
-    return shutil.which(name)
+def tool_binary_name(name: str) -> str:
+    candidate = str(name).strip()
+    if os.name == "nt" and not candidate.lower().endswith(".exe"):
+        return f"{candidate}.exe"
+    return candidate
+
+
+def tool_search_paths(name: str, root: Optional[str | Path] = None) -> list[Path]:
+    repo_root = Path(root or Path(__file__).resolve().parent)
+    tool_name = str(name).strip()
+    binary_name = tool_binary_name(tool_name)
+    env_name = f"TUNEMATRIX_{re.sub(r'[^A-Za-z0-9]+', '_', tool_name).upper()}".strip("_")
+    env_path = os.environ.get(env_name, "").strip()
+
+    paths: list[Path] = []
+    if env_path:
+        paths.append(Path(env_path))
+
+    paths.extend(
+        [
+            repo_root / "tools" / tool_name / binary_name,
+            repo_root / "tools" / tool_name / "bin" / binary_name,
+            repo_root / "tools" / binary_name,
+        ]
+    )
+    return paths
+
+
+def find_executable(name: str, root: Optional[str | Path] = None) -> Optional[str]:
+    for candidate in tool_search_paths(name, root=root):
+        if candidate.is_file():
+            return str(candidate)
+
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+
+    binary_name = tool_binary_name(name)
+    resolved = shutil.which(binary_name)
+    return resolved
 
 
 def format_dependency_status(name: str, available: bool, detail: Optional[str] = None) -> str:

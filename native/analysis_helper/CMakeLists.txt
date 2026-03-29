@@ -20,12 +20,25 @@ add_executable(tm-analysis-helper
     src/main.cpp
 )
 
+if(MSVC AND TM_ANALYSIS_HELPER_ENABLE_ESSENTIA)
+    set_property(
+        TARGET tm-analysis-helper
+        PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded"
+    )
+endif()
+
 target_include_directories(tm-analysis-helper
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 if(TM_ANALYSIS_HELPER_ENABLE_ESSENTIA)
+    get_filename_component(
+        TM_ANALYSIS_HELPER_REPO_ROOT
+        "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+        ABSOLUTE
+    )
+
     find_path(
         TM_ANALYSIS_HELPER_ESSENTIA_INCLUDE_DIR
         NAMES
@@ -33,8 +46,10 @@ if(TM_ANALYSIS_HELPER_ENABLE_ESSENTIA)
             essentia/essentia.h
         HINTS
             ${TM_ANALYSIS_HELPER_ESSENTIA_ROOT}
+            ${TM_ANALYSIS_HELPER_ESSENTIA_ROOT}/src
         PATH_SUFFIXES
             include
+            src
     )
     find_library(
         TM_ANALYSIS_HELPER_ESSENTIA_LIBRARY
@@ -43,18 +58,41 @@ if(TM_ANALYSIS_HELPER_ENABLE_ESSENTIA)
             libessentia
         HINTS
             ${TM_ANALYSIS_HELPER_ESSENTIA_ROOT}
+            ${TM_ANALYSIS_HELPER_ESSENTIA_ROOT}/build
         PATH_SUFFIXES
             lib
             lib64
             build
-            build\Release
-            build\Debug
+            build/src
+            build/Release
+            build/Debug
+            src
+    )
+    find_path(
+        TM_ANALYSIS_HELPER_EIGEN_INCLUDE_DIR
+        NAMES
+            Eigen/Core
+            unsupported/Eigen/CXX11/Tensor
+        HINTS
+            ${TM_ANALYSIS_HELPER_ESSENTIA_ROOT}
+            ${TM_ANALYSIS_HELPER_ESSENTIA_ROOT}/..
+            ${TM_ANALYSIS_HELPER_REPO_ROOT}/third_party/eigen-src
+        PATH_SUFFIXES
+            include
+            include/eigen3
+            eigen3
+            eigen-src
+            src
     )
 
-    if(NOT TM_ANALYSIS_HELPER_ESSENTIA_INCLUDE_DIR OR NOT TM_ANALYSIS_HELPER_ESSENTIA_LIBRARY)
+    if(
+        NOT TM_ANALYSIS_HELPER_ESSENTIA_INCLUDE_DIR
+        OR NOT TM_ANALYSIS_HELPER_ESSENTIA_LIBRARY
+        OR NOT TM_ANALYSIS_HELPER_EIGEN_INCLUDE_DIR
+    )
         message(
             FATAL_ERROR
-            "Essentia was requested but not found. Set TM_ANALYSIS_HELPER_ESSENTIA_ROOT or ESSENTIA_ROOT to an Essentia install containing include/essentia and the Essentia library."
+            "Essentia was requested but not found. Set TM_ANALYSIS_HELPER_ESSENTIA_ROOT or ESSENTIA_ROOT to an Essentia install/source tree containing the Essentia headers, library, and Eigen headers."
         )
     endif()
 
@@ -63,6 +101,7 @@ if(TM_ANALYSIS_HELPER_ENABLE_ESSENTIA)
         tm-analysis-helper
         PRIVATE
             ${TM_ANALYSIS_HELPER_ESSENTIA_INCLUDE_DIR}
+            ${TM_ANALYSIS_HELPER_EIGEN_INCLUDE_DIR}
     )
     target_link_libraries(
         tm-analysis-helper
@@ -72,6 +111,7 @@ if(TM_ANALYSIS_HELPER_ENABLE_ESSENTIA)
 
     message(STATUS "Essentia include dir: ${TM_ANALYSIS_HELPER_ESSENTIA_INCLUDE_DIR}")
     message(STATUS "Essentia library: ${TM_ANALYSIS_HELPER_ESSENTIA_LIBRARY}")
+    message(STATUS "Eigen include dir: ${TM_ANALYSIS_HELPER_EIGEN_INCLUDE_DIR}")
 endif()
 
 if(MSVC)

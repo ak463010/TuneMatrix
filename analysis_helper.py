@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ class NativeAnalysisResult:
     confidence: Optional[float]
     candidates: list[AnalysisCandidate]
     error: Optional[str]
+    helper_path: Optional[str] = None
 
 
 def helper_binary_name() -> str:
@@ -46,6 +48,7 @@ def helper_search_paths(root: Optional[Path] = None) -> list[Path]:
     paths.extend(
         [
             repo_root / "tools" / "analysis-helper" / binary_name,
+            repo_root / "tools" / "analysis-helper" / "bin" / binary_name,
             repo_root / "native" / "analysis_helper" / "build" / "Release" / binary_name,
             repo_root / "native" / "analysis_helper" / "build" / binary_name,
             repo_root / "build" / "analysis_helper_nmake" / binary_name,
@@ -61,6 +64,9 @@ def find_native_analysis_helper(root: Optional[Path] = None) -> Optional[Path]:
     for candidate in helper_search_paths(root):
         if candidate.is_file():
             return candidate
+    resolved = shutil.which(helper_binary_name())
+    if resolved:
+        return Path(resolved)
     return None
 
 
@@ -145,6 +151,17 @@ def run_native_analysis_helper(
         raise AnalysisHelperError(f"Native analysis helper returned invalid JSON: {exc}") from exc
 
     result = parse_native_analysis_result(payload)
+    result = NativeAnalysisResult(
+        backend=result.backend,
+        duration=result.duration,
+        bpm=result.bpm,
+        key=result.key,
+        scale=result.scale,
+        confidence=result.confidence,
+        candidates=result.candidates,
+        error=result.error,
+        helper_path=str(resolved_helper),
+    )
     if completed.returncode != 0 and result.error:
         raise AnalysisHelperError(result.error)
     if completed.returncode != 0:

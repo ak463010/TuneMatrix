@@ -40,6 +40,83 @@ class ProcessingWorkerSongBoundTests(unittest.TestCase):
         self.assertEqual(song.bpm, 128.0)
         self.assertEqual(song.musical_key, "A Minor")
 
+    def test_analyze_worker_logs_backend_label(self) -> None:
+        song = SongRecord.from_path("song.wav")
+        worker = AnalyzeWorker([song])
+        logs: list[str] = []
+        worker.log.connect(logs.append)
+
+        with patch(
+            "workers.analyze_audio",
+            return_value={
+                "duration": 60.0,
+                "bpm": 128.0,
+                "key": "A Minor",
+                "relative_key": "C Major",
+                "compatible_keys": ["E Minor"],
+                "analysis_backend": "essentia-cpp",
+            },
+        ):
+            worker._run_impl()
+
+        self.assertIn("Analyzed song.wav: 60.0s, 128.0 BPM, A Minor (Essentia helper).", logs)
+
+    def test_analyze_worker_logs_backend_path_and_ffmpeg_preparation(self) -> None:
+        song = SongRecord.from_path("song.mp3")
+        worker = AnalyzeWorker([song])
+        logs: list[str] = []
+        worker.log.connect(logs.append)
+
+        with patch(
+            "workers.analyze_audio",
+            return_value={
+                "duration": 60.0,
+                "bpm": 128.0,
+                "key": "A Minor",
+                "relative_key": "C Major",
+                "compatible_keys": ["E Minor"],
+                "analysis_backend": "essentia-cpp",
+                "analysis_backend_path": "C:/app/tools/analysis-helper/tm-analysis-helper.exe",
+                "analysis_prepared_with_ffmpeg": True,
+                "analysis_ffmpeg_path": "C:/app/tools/ffmpeg/ffmpeg.exe",
+            },
+        ):
+            worker._run_impl()
+
+        self.assertIn(
+            "song.mp3: analysis backend -> Essentia helper (C:/app/tools/analysis-helper/tm-analysis-helper.exe)",
+            logs,
+        )
+        self.assertIn(
+            "song.mp3: prepared analysis audio with ffmpeg -> C:/app/tools/ffmpeg/ffmpeg.exe",
+            logs,
+        )
+
+    def test_analyze_worker_logs_fallback_reason(self) -> None:
+        song = SongRecord.from_path("song.mp3")
+        worker = AnalyzeWorker([song])
+        logs: list[str] = []
+        worker.log.connect(logs.append)
+
+        with patch(
+            "workers.analyze_audio",
+            return_value={
+                "duration": 60.0,
+                "bpm": 128.0,
+                "key": "A Minor",
+                "relative_key": "C Major",
+                "compatible_keys": ["E Minor"],
+                "analysis_backend": "librosa",
+                "analysis_fallback_reason": "Native analysis helper timed out.",
+            },
+        ):
+            worker._run_impl()
+
+        self.assertIn(
+            "song.mp3: falling back to librosa. Reason: Native analysis helper timed out.",
+            logs,
+        )
+
     def test_song_processing_targets_are_used_directly(self) -> None:
         song = SongRecord.from_path("song.wav")
         song.processing_target_bpm = 132.0

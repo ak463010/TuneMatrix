@@ -19,6 +19,7 @@ Common examples:
 Cause:
 
 - `ffmpeg` is not available on `PATH`
+- and no bundled `tools/ffmpeg/ffmpeg(.exe)` runtime was found
 
 Effect:
 
@@ -28,6 +29,7 @@ Effect:
 Fix:
 
 - install `ffmpeg`
+- or place it in the bundled app layout under `tools/ffmpeg/`
 - ensure the executable is on `PATH`
 - restart the app
 
@@ -62,6 +64,7 @@ Effect:
 Fix:
 
 - install Rubber Band
+- or place it in the bundled app layout under `tools/rubberband/`
 - ensure `rubberband` is available on `PATH`
 
 ## Key Matching Did Not Change Major to Minor

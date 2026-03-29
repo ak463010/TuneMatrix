@@ -29,11 +29,12 @@ This file describes the current implementation status against the requested feat
 - newly imported songs are auto-analyzed in the background
 - changing a song's `BPM Range` or `Key Hint` queues automatic re-analysis for that song
 - `BPM Range` and `Key Hint` remain editable while tasks are running; changing them restarts active analysis or queues fresh analysis after the current non-analysis task
-- duration detection with `librosa`
-- BPM estimation with `librosa`
+- analysis now prefers the native Essentia helper automatically when it is available, with `librosa` fallback if the helper is unavailable or fails in `auto` mode
+- duration, BPM, and key analysis through the native Essentia helper when available
+- `librosa` remains the fallback analysis backend
 - optional per-song BPM-range hint to reduce half-time/double-time BPM ambiguity
 - BPM range cells accept presets plus manual exact BPM values such as `102.474` and manual ranges such as `102.474-110.2`
-- rough key detection using chroma features
+- rough chroma-based key detection remains available as the fallback path
 - optional per-song key-hint dropdown used as a soft tie-breaker when detection is close
 - relative key derived from the detected key
 - compatible-key list derived from the detected key using circle-of-fifths neighbors and relative major/minor relationships
