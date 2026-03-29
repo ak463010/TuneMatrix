@@ -89,6 +89,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsInstance(window.song_bound_section.graphicsEffect(), QGraphicsOpacityEffect)
 
         window.song_table.selectRow(0)
+        with patch("main_window.action_base_requirement_message", return_value=None):
+            window._refresh_action_availability()
 
         self.assertTrue(window.remove_button.isEnabled())
         self.assertTrue(window.analyze_button.isEnabled())

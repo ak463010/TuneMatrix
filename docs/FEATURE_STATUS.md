@@ -31,9 +31,10 @@ This file describes the current implementation status against the requested feat
 - `BPM Range` and `Key Hint` remain editable while tasks are running; changing them restarts active analysis or queues fresh analysis after the current non-analysis task
 - duration detection with `librosa`
 - BPM estimation with `librosa`
+- key analysis prefers `madmom` when available and otherwise falls back to the built-in `audioFlux`/`librosa` detector
 - optional per-song BPM-range hint to reduce half-time/double-time BPM ambiguity
 - BPM range cells accept presets plus manual exact BPM values such as `102.474` and manual ranges such as `102.474-110.2`
-- rough key detection using chroma features
+- rough key detection using chroma features with the existing TuneMatrix scoring logic
 - optional per-song key-hint dropdown used as a soft tie-breaker when detection is close
 - relative key derived from the detected key
 - compatible-key list derived from the detected key using circle-of-fifths neighbors and relative major/minor relationships

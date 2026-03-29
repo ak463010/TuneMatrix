@@ -24,10 +24,20 @@ The current dependency list includes:
 - `PySide6`
 - `numpy`
 - `librosa`
+- `audioflux`
 - `soundfile`
 - `pyrubberband`
 - `demucs`
 - `torch`
+
+Optional key-detection backend:
+
+- `madmom`
+- `Cython` is needed first on Python 3.12
+- install it with:
+  `python -m pip install Cython`
+  then:
+  `python -m pip install --no-build-isolation madmom`
 
 ## External Tools
 
@@ -80,6 +90,8 @@ On first launch, check the bottom log panel. TuneMatrix logs the detected depend
 The startup log intentionally reports only the dependencies used by the current implementation:
 
 - `librosa`
+- `madmom`
+- `audioflux`
 - `numpy`
 - `soundfile`
 - `pyrubberband`
@@ -111,6 +123,7 @@ After setup:
 3. Leave each song row's `BPM Range` and `Key Hint` columns on `Auto` unless you want to guide analysis.
    `BPM Range` keeps preset dropdown choices and also includes `Enter BPM...` for manual exact BPM input such as `102.474` or manual ranges such as `102.474-110.2`.
 4. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
+   TuneMatrix now prefers `madmom` for key detection when available, then falls back to the built-in `audioFlux`/`librosa` key detector while keeping BPM estimation on `librosa`.
 5. In the right sidebar, choose a per-song `Processing Mode` if you want to tune tempo/key quality:
    `Balanced`, `High Quality Mix`, `Vocal`, `Percussive`, or `Fast Preview`.
    `High Quality Mix` is the better choice for wide full-song mixes and now uses Rubber Band's slower high-quality pitch path, while `Vocal` keeps lead vocals more centered and stable with formant preservation.

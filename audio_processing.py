@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import collections
+import collections.abc
 from functools import lru_cache
 import importlib.util
+import os
+import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Callable, Optional
+import warnings
 
 try:
     import librosa
@@ -14,6 +20,18 @@ except Exception as exc:  # pragma: no cover - dependency dependent
 else:
     LIBROSA_IMPORT_ERROR = None
 
+_AUDIOFLUX_MPLCONFIGDIR = Path(tempfile.gettempdir()) / "TuneMatrix" / "matplotlib"
+_AUDIOFLUX_MPLCONFIGDIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(_AUDIOFLUX_MPLCONFIGDIR))
+
+try:
+    import audioflux
+except Exception as exc:  # pragma: no cover - dependency dependent
+    audioflux = None
+    AUDIOFLUX_IMPORT_ERROR = str(exc)
+else:
+    AUDIOFLUX_IMPORT_ERROR = None
+
 try:
     import numpy as np
 except Exception as exc:  # pragma: no cover - dependency dependent
@@ -21,6 +39,43 @@ except Exception as exc:  # pragma: no cover - dependency dependent
     NUMPY_IMPORT_ERROR = str(exc)
 else:
     NUMPY_IMPORT_ERROR = None
+
+
+def _apply_madmom_compatibility() -> None:
+    compatibility_pairs = {
+        "MutableSequence": collections.abc.MutableSequence,
+        "MutableMapping": collections.abc.MutableMapping,
+        "Mapping": collections.abc.Mapping,
+        "Sequence": collections.abc.Sequence,
+        "Set": collections.abc.Set,
+    }
+    for name, value in compatibility_pairs.items():
+        if not hasattr(collections, name):
+            setattr(collections, name, value)
+
+    if np is not None:
+        if not hasattr(np, "float"):
+            np.float = float  # type: ignore[attr-defined]
+        if not hasattr(np, "int"):
+            np.int = int  # type: ignore[attr-defined]
+        if not hasattr(np, "complex"):
+            np.complex = complex  # type: ignore[attr-defined]
+
+
+_apply_madmom_compatibility()
+
+try:
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API.*")
+        import madmom
+        from madmom.features.key import CNNKeyRecognitionProcessor, key_prediction_to_label
+except Exception as exc:  # pragma: no cover - dependency dependent
+    madmom = None
+    CNNKeyRecognitionProcessor = None
+    key_prediction_to_label = None
+    MADMOM_IMPORT_ERROR = str(exc)
+else:
+    MADMOM_IMPORT_ERROR = None
 
 try:
     import pyrubberband as pyrb
@@ -109,11 +164,15 @@ INTERNAL_STEM_OUTPUT_FILES = {
     "bass": "bass.wav",
     "other": "instruments.wav",
 }
+AUDIOFLUX_KEY_SAMPLE_RATE = 32000
+ANALYSIS_EXCERPT_SECONDS = 60.0
 
 
 def get_dependency_report() -> dict[str, dict[str, Optional[str]]]:
     return {
         "librosa": {"available": librosa is not None, "detail": LIBROSA_IMPORT_ERROR},
+        "madmom": {"available": madmom is not None, "detail": MADMOM_IMPORT_ERROR},
+        "audioflux": {"available": audioflux is not None, "detail": AUDIOFLUX_IMPORT_ERROR},
         "numpy": {"available": np is not None, "detail": NUMPY_IMPORT_ERROR},
         "soundfile": {"available": sf is not None, "detail": SOUND_FILE_IMPORT_ERROR},
         "pyrubberband": {"available": pyrb is not None, "detail": PYRUBBERBAND_IMPORT_ERROR},
@@ -128,6 +187,8 @@ def dependency_status_lines() -> list[str]:
     report = get_dependency_report()
     ordered_names = [
         "librosa",
+        "madmom",
+        "audioflux",
         "numpy",
         "soundfile",
         "pyrubberband",
@@ -267,6 +328,207 @@ def apply_bpm_analysis_hint(
     return bpm
 
 
+def _get_audio_file_duration(file_path: str) -> Optional[float]:
+    if sf is not None:
+        try:
+            info = sf.info(file_path)
+        except Exception:
+            info = None
+        if info is not None and getattr(info, "samplerate", 0) and getattr(info, "frames", 0):
+            return float(info.frames / info.samplerate)
+
+    try:
+        return float(librosa.get_duration(path=file_path))
+    except Exception:
+        return None
+
+
+def _analysis_excerpt_window(total_duration: Optional[float]) -> tuple[float, Optional[float]]:
+    if total_duration is None or total_duration <= ANALYSIS_EXCERPT_SECONDS:
+        return 0.0, None
+
+    offset = max(0.0, (total_duration - ANALYSIS_EXCERPT_SECONDS) / 2.0)
+    return offset, ANALYSIS_EXCERPT_SECONDS
+
+
+def _prepare_audio_for_audioflux(audio: "np.ndarray", sample_rate: int) -> tuple["np.ndarray", int]:
+    if audioflux is None:
+        raise DependencyError("audioFlux is not available for key analysis.")
+
+    prepared_audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+    prepared_sample_rate = int(sample_rate)
+    if prepared_audio.size == 0 or prepared_sample_rate <= 0:
+        return prepared_audio, prepared_sample_rate
+
+    target_sample_rate = min(prepared_sample_rate, AUDIOFLUX_KEY_SAMPLE_RATE)
+    if target_sample_rate >= 8000 and prepared_sample_rate > target_sample_rate:
+        prepared_audio = np.asarray(
+            audioflux.resample(
+                prepared_audio,
+                source_samplate=prepared_sample_rate,
+                target_samplate=target_sample_rate,
+            ),
+            dtype=np.float32,
+        )
+        prepared_sample_rate = target_sample_rate
+
+    return prepared_audio, prepared_sample_rate
+
+
+def _pitch_profile_from_chroma(chroma: "np.ndarray") -> Optional["np.ndarray"]:
+    chroma_array = np.asarray(chroma, dtype=float)
+    if chroma_array.ndim == 1:
+        chroma_array = np.expand_dims(chroma_array, axis=-1)
+    if chroma_array.ndim != 2 or chroma_array.shape[0] != len(NOTE_NAMES):
+        return None
+
+    mean_profile = np.mean(chroma_array, axis=1)
+    median_profile = np.median(chroma_array, axis=1)
+    pitch_profile = (0.65 * mean_profile) + (0.35 * median_profile)
+    if not np.any(pitch_profile):
+        return None
+    return pitch_profile
+
+
+def _extract_audioflux_pitch_profile(audio: "np.ndarray", sample_rate: int) -> Optional["np.ndarray"]:
+    prepared_audio, prepared_sample_rate = _prepare_audio_for_audioflux(audio, sample_rate)
+    if prepared_audio.size == 0 or prepared_sample_rate <= 0:
+        return None
+
+    try:
+        chroma_cqt = audioflux.chroma_cqt(prepared_audio, samplate=prepared_sample_rate)
+    except Exception:
+        chroma_cqt = None
+    if chroma_cqt is not None:
+        cqt_profile = _pitch_profile_from_chroma(chroma_cqt)
+        if cqt_profile is not None:
+            return cqt_profile
+
+    try:
+        chroma_linear = audioflux.chroma_linear(
+            prepared_audio,
+            samplate=prepared_sample_rate,
+            radix2_exp=12,
+            slide_length=1024,
+            high_fre=min(16000.0, prepared_sample_rate / 2.0),
+        )
+    except Exception:
+        chroma_linear = None
+    if chroma_linear is not None:
+        linear_profile = _pitch_profile_from_chroma(chroma_linear)
+        if linear_profile is not None:
+            return linear_profile
+    return None
+
+
+def _extract_librosa_pitch_profile(audio: "np.ndarray", sample_rate: int) -> Optional["np.ndarray"]:
+    try:
+        chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate)
+    except Exception:
+        chroma = librosa.feature.chroma_stft(y=audio, sr=sample_rate)
+    return _pitch_profile_from_chroma(chroma)
+
+
+def _canonicalize_note_name(note_name: object) -> Optional[str]:
+    raw = str(note_name or "").strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace("♯", "#").replace("♭", "b")
+    letter = normalized[0].upper()
+    accidental = normalized[1:].replace("b", "B").replace("#", "#").upper()
+    candidate = f"{letter}{accidental}"
+    if candidate in NOTE_NAMES:
+        return candidate
+    return {
+        "DB": "C#",
+        "EB": "D#",
+        "GB": "F#",
+        "AB": "G#",
+        "BB": "A#",
+    }.get(candidate)
+
+
+def _parse_madmom_key_name(value: object) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    try:
+        note_token, mode_token = raw.split(maxsplit=1)
+    except ValueError:
+        return None
+
+    canonical_note = _canonicalize_note_name(note_token)
+    if canonical_note is None:
+        return None
+
+    mode_token = mode_token.strip().lower()
+    if mode_token.startswith("maj"):
+        mode = "Major"
+    elif mode_token.startswith("min"):
+        mode = "Minor"
+    else:
+        return None
+    return f"{canonical_note} {mode}"
+
+
+@lru_cache(maxsize=1)
+def _get_madmom_key_processor():
+    if CNNKeyRecognitionProcessor is None:
+        raise DependencyError("madmom is not available for key analysis.")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return CNNKeyRecognitionProcessor()
+
+
+def _detect_key_with_madmom(
+    audio: "np.ndarray",
+    sample_rate: int,
+    file_path: Optional[str] = None,
+) -> Optional[str]:
+    if madmom is None or key_prediction_to_label is None:
+        return None
+
+    analysis_path = file_path
+    temp_path: Optional[Path] = None
+    try:
+        if sf is not None and audio.size:
+            prepared_audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+            if prepared_audio.size:
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+                    sf.write(temp_file.name, prepared_audio, sample_rate)
+                    temp_path = Path(temp_file.name)
+                    analysis_path = temp_file.name
+
+        if not analysis_path:
+            return None
+
+        processor = _get_madmom_key_processor()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            prediction = processor(analysis_path)
+            key_label = key_prediction_to_label(prediction)
+        return _parse_madmom_key_name(key_label)
+    except Exception:
+        return None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def detect_key_for_file(
+    file_path: str,
+    audio: "np.ndarray",
+    sample_rate: int,
+    key_hint: Optional[str] = None,
+) -> Optional[str]:
+    madmom_key = _detect_key_with_madmom(audio, sample_rate, file_path=file_path)
+    if madmom_key is not None:
+        return madmom_key
+    return detect_key(audio, sample_rate, key_hint=key_hint)
+
+
 def analyze_audio(
     file_path: str,
     bpm_hint: Optional[BPMAnalysisHint] = None,
@@ -275,12 +537,15 @@ def analyze_audio(
     _require_analysis_stack()
     _require_decode_support(file_path)
 
-    audio, sample_rate = librosa.load(file_path, sr=None, mono=True)
-    duration = float(librosa.get_duration(y=audio, sr=sample_rate))
+    duration = _get_audio_file_duration(file_path)
+    offset, analysis_duration = _analysis_excerpt_window(duration)
+    audio, sample_rate = librosa.load(file_path, sr=None, mono=True, offset=offset, duration=analysis_duration)
+    if duration is None:
+        duration = float(librosa.get_duration(y=audio, sr=sample_rate))
     tempo, _ = librosa.beat.beat_track(y=audio, sr=sample_rate)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if tempo is not None else None
     bpm = apply_bpm_analysis_hint(bpm, bpm_hint)
-    key_name = detect_key(audio, sample_rate, key_hint=key_hint)
+    key_name = detect_key_for_file(file_path, audio, sample_rate, key_hint=key_hint)
     relative_key = get_relative_key(key_name)
     compatible_keys = get_compatible_keys(key_name)
     return {
@@ -298,25 +563,25 @@ def detect_key(audio: "np.ndarray", sample_rate: int, key_hint: Optional[str] = 
     if audio.size == 0:
         return None
 
-    harmonic_audio = audio
-    try:
-        harmonic_audio = librosa.effects.harmonic(audio)
-    except Exception:
+    pitch_profile: Optional["np.ndarray"] = None
+    if audioflux is not None:
+        try:
+            pitch_profile = _extract_audioflux_pitch_profile(audio, sample_rate)
+        except Exception:
+            pitch_profile = None
+
+    if pitch_profile is None:
         harmonic_audio = audio
+        try:
+            harmonic_audio = librosa.effects.harmonic(audio)
+        except Exception:
+            harmonic_audio = audio
+        pitch_profile = _extract_librosa_pitch_profile(harmonic_audio, sample_rate)
 
-    try:
-        chroma = librosa.feature.chroma_cqt(y=harmonic_audio, sr=sample_rate)
-    except Exception:
-        chroma = librosa.feature.chroma_stft(y=harmonic_audio, sr=sample_rate)
-
-    mean_profile = np.mean(chroma, axis=1)
-    median_profile = np.median(chroma, axis=1)
-    pitch_profile = (0.65 * mean_profile) + (0.35 * median_profile)
-    if not np.any(pitch_profile):
+    if pitch_profile is None or not np.any(pitch_profile):
         return None
 
     scored_keys = _score_keys_from_pitch_profile(pitch_profile)
-
     best_key = max(scored_keys, key=scored_keys.get)
     best_score = scored_keys[best_key]
 

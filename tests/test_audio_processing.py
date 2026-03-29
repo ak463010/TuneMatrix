@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import soundfile as sf
@@ -15,7 +15,10 @@ from audio_processing import (
     TaskCanceledError,
     _apply_demucs_model_with_cancel,
     _export_processed_filename,
+    _parse_madmom_key_name,
     _pitch_shift,
+    detect_key,
+    detect_key_for_file,
     _score_keys_from_pitch_profile,
     _rubberband_args_for_processing_mode,
     _time_stretch,
@@ -63,6 +66,31 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertTrue(result["key"])
             self.assertEqual(result["relative_key"], get_relative_key(result["key"]))
             self.assertEqual(result["compatible_keys"], get_compatible_keys(result["key"]))
+
+    def test_analyze_audio_uses_middle_excerpt_for_long_tracks(self) -> None:
+        fake_audio = np.ones(2048, dtype=np.float32)
+        with patch("audio_processing._get_audio_file_duration", return_value=300.0), patch(
+            "audio_processing.librosa.load",
+            return_value=(fake_audio, 22050),
+        ) as load_mock, patch(
+            "audio_processing.librosa.beat.beat_track",
+            return_value=(np.array([128.0], dtype=np.float32), None),
+        ), patch(
+            "audio_processing.detect_key",
+            return_value="C Major",
+        ):
+            result = analyze_audio("long_track.wav")
+
+        load_mock.assert_called_once_with(
+            "long_track.wav",
+            sr=None,
+            mono=True,
+            offset=120.0,
+            duration=60.0,
+        )
+        self.assertEqual(result["duration"], 300.0)
+        self.assertEqual(result["bpm"], 128.0)
+        self.assertEqual(result["key"], "C Major")
 
     def test_key_relationship_helpers_return_relative_and_compatible_keys(self) -> None:
         self.assertEqual(get_relative_key("C Major"), "A Minor")
@@ -124,6 +152,59 @@ class AudioProcessingTests(unittest.TestCase):
             apply_bpm_analysis_hint(75.0, BPMAnalysisHint(bpm_range=(140.0, 160.0))),
             150.0,
         )
+
+    def test_detect_key_prefers_audioflux_backend_when_available(self) -> None:
+        profile = np.array(
+            [
+                0.23, 0.01, 0.06, 0.01, 0.17, 0.07,
+                0.01, 0.14, 0.01, 0.10, 0.01, 0.18,
+            ],
+            dtype=np.float32,
+        )
+        chroma = np.expand_dims(profile, axis=-1)
+        fake_audioflux = SimpleNamespace(
+            chroma_cqt=Mock(return_value=chroma),
+            chroma_linear=Mock(return_value=chroma),
+            resample=Mock(side_effect=AssertionError("audioFlux resample should not be used for 22.05 kHz audio")),
+        )
+        audio = np.linspace(-0.5, 0.5, 4096, dtype=np.float32)
+
+        with patch("audio_processing.audioflux", fake_audioflux), patch(
+            "audio_processing.librosa.effects.harmonic",
+            return_value=audio,
+        ), patch(
+            "audio_processing.librosa.feature.chroma_cqt",
+            Mock(side_effect=AssertionError("legacy chroma backend should not run when audioFlux succeeds")),
+        ), patch(
+            "audio_processing.librosa.feature.chroma_stft",
+            Mock(side_effect=AssertionError("legacy chroma backend should not run when audioFlux succeeds")),
+        ):
+            detected = detect_key(audio, 22050)
+
+        self.assertEqual(detected, "C Major")
+        fake_audioflux.chroma_cqt.assert_called_once()
+        fake_audioflux.chroma_linear.assert_not_called()
+
+    def test_parse_madmom_key_name_supports_major_and_minor_forms(self) -> None:
+        self.assertEqual(_parse_madmom_key_name("A major"), "A Major")
+        self.assertEqual(_parse_madmom_key_name("A minor"), "A Minor")
+        self.assertEqual(_parse_madmom_key_name("Bb minor"), "A# Minor")
+        self.assertEqual(_parse_madmom_key_name("Db major"), "C# Major")
+
+    def test_detect_key_for_file_prefers_madmom_backend_when_available(self) -> None:
+        audio = np.linspace(-0.5, 0.5, 4096, dtype=np.float32)
+
+        with patch(
+            "audio_processing._detect_key_with_madmom",
+            return_value="A Major",
+        ) as madmom_mock, patch(
+            "audio_processing.detect_key",
+            Mock(side_effect=AssertionError("fallback detector should not run when madmom succeeds")),
+        ):
+            detected = detect_key_for_file("song.wav", audio, 22050)
+
+        self.assertEqual(detected, "A Major")
+        madmom_mock.assert_called_once_with(audio, 22050, file_path="song.wav")
 
     def test_rubberband_args_vary_by_processing_mode(self) -> None:
         self.assertEqual(
@@ -221,6 +302,8 @@ class AudioProcessingTests(unittest.TestCase):
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {
             "librosa": {"available": True, "detail": None},
+            "madmom": {"available": True, "detail": None},
+            "audioflux": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},
             "pyrubberband": {"available": True, "detail": None},
@@ -240,6 +323,8 @@ class AudioProcessingTests(unittest.TestCase):
     def test_action_base_requirement_message_for_separate_only_requires_demucs_stack(self) -> None:
         fake_report = {
             "librosa": {"available": True, "detail": None},
+            "madmom": {"available": True, "detail": None},
+            "audioflux": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},
             "pyrubberband": {"available": True, "detail": None},

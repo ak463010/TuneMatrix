@@ -70,8 +70,9 @@ This keeps the Qt event loop responsive while audio operations run in the backgr
 
 1. `MainWindow` creates `AnalyzeWorker`
 2. worker calls `analyze_audio`
-3. duration, BPM, rough key, relative key, and compatible keys are written back to the `SongRecord`
-4. UI updates the table row
+3. `analyze_audio` keeps duration/BPM on the existing `librosa` path and prefers `madmom` for key detection, falling back to the built-in `audioFlux`/`librosa` detector when `madmom` is unavailable
+4. duration, BPM, rough key, relative key, and compatible keys are written back to the `SongRecord`
+5. UI updates the table row
 
 `MainWindow` now also has an automatic analysis queue:
 
