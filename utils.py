@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import tempfile
@@ -9,6 +10,62 @@ from typing import Optional
 
 SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a"}
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+KEY_DISPLAY_AUTO = "auto"
+KEY_DISPLAY_PREFER_SHARPS = "prefer_sharps"
+KEY_DISPLAY_PREFER_FLATS = "prefer_flats"
+KEY_DISPLAY_PREFERENCE_OPTIONS = [
+    ("Auto", KEY_DISPLAY_AUTO),
+    ("Prefer Sharps", KEY_DISPLAY_PREFER_SHARPS),
+    ("Prefer Flats", KEY_DISPLAY_PREFER_FLATS),
+]
+CAMELOT_KEY_MAP = {
+    "C Major": "8B",
+    "C# Major": "3B",
+    "D Major": "10B",
+    "D# Major": "5B",
+    "E Major": "12B",
+    "F Major": "7B",
+    "F# Major": "2B",
+    "G Major": "9B",
+    "G# Major": "4B",
+    "A Major": "11B",
+    "A# Major": "6B",
+    "B Major": "1B",
+    "C Minor": "5A",
+    "C# Minor": "12A",
+    "D Minor": "7A",
+    "D# Minor": "2A",
+    "E Minor": "9A",
+    "F Minor": "4A",
+    "F# Minor": "11A",
+    "G Minor": "6A",
+    "G# Minor": "1A",
+    "A Minor": "8A",
+    "A# Minor": "3A",
+    "B Minor": "10A",
+}
+ENHARMONIC_KEY_ALIAS_MAP = {
+    "C# Major": "D♭ Major",
+    "D♭ Major": "C# Major",
+    "D# Major": "E♭ Major",
+    "E♭ Major": "D# Major",
+    "F# Major": "G♭ Major",
+    "G♭ Major": "F# Major",
+    "G# Major": "A♭ Major",
+    "A♭ Major": "G# Major",
+    "A# Major": "B♭ Major",
+    "B♭ Major": "A# Major",
+    "C# Minor": "D♭ Minor",
+    "D♭ Minor": "C# Minor",
+    "D# Minor": "E♭ Minor",
+    "E♭ Minor": "D# Minor",
+    "F# Minor": "G♭ Minor",
+    "G♭ Minor": "F# Minor",
+    "G# Minor": "A♭ Minor",
+    "A♭ Minor": "G# Minor",
+    "A# Minor": "B♭ Minor",
+    "B♭ Minor": "A# Minor",
+}
 
 
 def is_supported_audio_file(path: str) -> bool:
@@ -44,8 +101,88 @@ def format_bpm(bpm: Optional[float]) -> str:
     return f"{bpm:.1f}"
 
 
-def format_key(key_name: Optional[str]) -> str:
-    return key_name or "N/A"
+def enharmonic_key_alias(key_name: Optional[str]) -> Optional[str]:
+    if not key_name:
+        return None
+    return ENHARMONIC_KEY_ALIAS_MAP.get(key_name)
+
+
+def normalize_key_display_preference(preference: Optional[str]) -> str:
+    normalized = str(preference or KEY_DISPLAY_AUTO).strip().lower()
+    allowed = {KEY_DISPLAY_AUTO, KEY_DISPLAY_PREFER_SHARPS, KEY_DISPLAY_PREFER_FLATS}
+    if normalized in allowed:
+        return normalized
+    return KEY_DISPLAY_AUTO
+
+
+def display_key_name(key_name: Optional[str], preference: Optional[str] = None) -> Optional[str]:
+    if not key_name:
+        return None
+
+    normalized_preference = normalize_key_display_preference(preference)
+    alias = enharmonic_key_alias(key_name)
+    if normalized_preference == KEY_DISPLAY_PREFER_FLATS and alias and "#" in key_name:
+        return alias
+    if normalized_preference == KEY_DISPLAY_PREFER_SHARPS and alias and "\u266d" in key_name:
+        return alias
+    return key_name
+
+
+def alternate_key_notation(key_name: Optional[str], preference: Optional[str] = None) -> Optional[str]:
+    if not key_name:
+        return None
+
+    displayed = display_key_name(key_name, preference)
+    if displayed != key_name:
+        return key_name
+
+    alias = enharmonic_key_alias(key_name)
+    if alias and alias != displayed:
+        return alias
+    return None
+
+
+def format_key(key_name: Optional[str], preference: Optional[str] = None) -> str:
+    return display_key_name(key_name, preference) or "N/A"
+
+
+def format_key_list(keys: Optional[list[str]], preference: Optional[str] = None) -> str:
+    if not keys:
+        return "N/A"
+    return ", ".join(format_key(key_name, preference) for key_name in keys)
+
+
+def format_key_with_alias(key_name: Optional[str], preference: Optional[str] = None) -> str:
+    formatted = format_key(key_name, preference)
+    if formatted == "N/A":
+        return formatted
+    alias = alternate_key_notation(key_name, preference)
+    if not alias:
+        return formatted
+    return f"{formatted} ({alias})"
+
+
+def camelot_for_key(key_name: Optional[str]) -> Optional[str]:
+    if not key_name:
+        return None
+    return CAMELOT_KEY_MAP.get(key_name)
+
+
+def format_camelot(key_name: Optional[str]) -> str:
+    return camelot_for_key(key_name) or "N/A"
+
+
+def key_filename_fragment(key_name: Optional[str], preference: Optional[str] = None) -> str:
+    displayed = display_key_name(key_name, preference)
+    if not displayed:
+        return "unknown_key"
+
+    normalized = (
+        displayed.replace("\u266d", "b")
+        .replace("#", "sharp")
+        .replace(" ", "_")
+    )
+    return safe_stem(normalized)
 
 
 def safe_stem(value: str) -> str:
@@ -114,8 +251,46 @@ def copy_directory_to_directory(source_dir: str | Path, destination_dir: str | P
     return str(target_path)
 
 
-def find_executable(name: str) -> Optional[str]:
-    return shutil.which(name)
+def tool_binary_name(name: str) -> str:
+    candidate = str(name).strip()
+    if os.name == "nt" and not candidate.lower().endswith(".exe"):
+        return f"{candidate}.exe"
+    return candidate
+
+
+def tool_search_paths(name: str, root: Optional[str | Path] = None) -> list[Path]:
+    repo_root = Path(root or Path(__file__).resolve().parent)
+    tool_name = str(name).strip()
+    binary_name = tool_binary_name(tool_name)
+    env_name = f"TUNEMATRIX_{re.sub(r'[^A-Za-z0-9]+', '_', tool_name).upper()}".strip("_")
+    env_path = os.environ.get(env_name, "").strip()
+
+    paths: list[Path] = []
+    if env_path:
+        paths.append(Path(env_path))
+
+    paths.extend(
+        [
+            repo_root / "tools" / tool_name / binary_name,
+            repo_root / "tools" / tool_name / "bin" / binary_name,
+            repo_root / "tools" / binary_name,
+        ]
+    )
+    return paths
+
+
+def find_executable(name: str, root: Optional[str | Path] = None) -> Optional[str]:
+    for candidate in tool_search_paths(name, root=root):
+        if candidate.is_file():
+            return str(candidate)
+
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+
+    binary_name = tool_binary_name(name)
+    resolved = shutil.which(binary_name)
+    return resolved
 
 
 def format_dependency_status(name: str, available: bool, detail: Optional[str] = None) -> str:

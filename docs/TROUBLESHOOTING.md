@@ -6,9 +6,11 @@ TuneMatrix disables some actions when required runtime support is missing.
 
 Check the bottom log panel at startup for dependency status and disabled-feature messages.
 
+The startup diagnostics show only the dependencies used by the current implementation. Older optional libraries that are not part of the active pipeline are intentionally omitted.
+
 Common examples:
 
-- `Separate Stems` disabled: `torchcodec` missing
+- `Separate Stems` disabled: Demucs or PyTorch runtime missing
 - `Process All` disabled: stem separation dependency missing
 - analyze blocked for `mp3` or `m4a`: `ffmpeg` missing
 
@@ -17,6 +19,7 @@ Common examples:
 Cause:
 
 - `ffmpeg` is not available on `PATH`
+- and no bundled `tools/ffmpeg/ffmpeg(.exe)` runtime was found
 
 Effect:
 
@@ -26,6 +29,7 @@ Effect:
 Fix:
 
 - install `ffmpeg`
+- or place it in the bundled app layout under `tools/ffmpeg/`
 - ensure the executable is on `PATH`
 - restart the app
 
@@ -33,9 +37,9 @@ Fix:
 
 Cause:
 
-- missing `torchcodec`
 - missing `demucs`
 - missing Torch runtime pieces
+- missing `librosa`, `numpy`, or `soundfile` required by the in-process stem path
 
 Fix:
 
@@ -45,7 +49,7 @@ pip install -r requirements.txt
 
 Then restart the application.
 
-If the problem continues, verify in the app log that `demucs`, `torch`, `torchaudio`, and `torchcodec` are all available.
+If the problem continues, verify in the app log that `demucs`, `torch`, `librosa`, `numpy`, and `soundfile` are all available.
 
 ## Tempo or Key Matching Quality Is Poor
 
@@ -60,6 +64,7 @@ Effect:
 Fix:
 
 - install Rubber Band
+- or place it in the bundled app layout under `tools/rubberband/`
 - ensure `rubberband` is available on `PATH`
 
 ## Key Matching Did Not Change Major to Minor
@@ -72,6 +77,22 @@ The app currently:
 - keeps the existing mode
 
 So a request like `A Major -> C Minor` will move the tonic toward `C`, but it will not perform full reharmonization into a real minor mode.
+
+## Relative or Compatible Keys Look Wrong
+
+Cause:
+
+- the app first performs rough key detection
+- relative and compatible keys are then derived from that detected key
+
+Effect:
+
+- if the detected key is wrong, the relative and compatible suggestions will also be wrong
+
+Notes:
+
+- the relative key is the strict major/minor pair for the detected key
+- compatible keys are generated from a circle-of-fifths style heuristic, not full musical analysis
 
 ## Tests Fail on Headless Machines
 
@@ -98,3 +119,18 @@ Recent fixes:
 - left table area gets more width
 
 If layout still looks wrong, restart after pulling the latest code and retest.
+
+## Where Temporary Files Are Stored
+
+On Windows, TuneMatrix keeps temporary processed audio and stem cache files under:
+
+```text
+C:\Users\<you>\AppData\Local\Temp\TuneMatrix\
+```
+
+Typical cache subfolders:
+
+- `processed\`
+- `stems\`
+
+These are cache files, not exported deliverables.

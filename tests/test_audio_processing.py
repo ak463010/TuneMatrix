@@ -4,20 +4,46 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 import soundfile as sf
+import torch as th
 
+from analysis_helper import AnalysisCandidate, AnalysisHelperError, NativeAnalysisResult
 from audio_processing import (
+    DependencyError,
+    TaskCanceledError,
+    _apply_demucs_model_with_cancel,
+    _export_processed_filename,
+    _pitch_shift,
+    _rubberband_args_for_processing_mode,
+    _time_stretch,
     action_base_requirement_message,
     action_runtime_issues,
+    apply_bpm_analysis_hint,
     analyze_audio,
     export_song_artifacts,
+    get_compatible_keys,
+    get_relative_key,
     match_song_key,
     match_song_tempo,
+    normalize_key_name,
+    normalize_bpm_to_range_hint,
+    separate_song_stems,
 )
-from models import SongRecord
+from models import (
+    BPMAnalysisHint,
+    PROCESSING_MODE_BALANCED,
+    PROCESSING_MODE_FAST_PREVIEW,
+    PROCESSING_MODE_HIGH_QUALITY_MIX,
+    PROCESSING_MODE_PERCUSSIVE,
+    PROCESSING_MODE_VOCAL,
+    SongRecord,
+    bpm_hint_from_label,
+    bpm_range_from_label,
+)
 
 
 def create_test_wave(path: Path, frequency: float = 440.0, duration: float = 2.0, sample_rate: int = 22050) -> None:
@@ -27,6 +53,135 @@ def create_test_wave(path: Path, frequency: float = 440.0, duration: float = 2.0
 
 
 class AudioProcessingTests(unittest.TestCase):
+    def test_analyze_audio_uses_native_helper_when_configured(self) -> None:
+        helper_result = NativeAnalysisResult(
+            backend="essentia-cpp",
+            duration=191.0,
+            bpm=110.02,
+            key="F# Major",
+            scale="major",
+            confidence=0.91,
+            candidates=[
+                AnalysisCandidate("F# Major", 0.91),
+                AnalysisCandidate("D# Minor", 0.07),
+            ],
+            error=None,
+        )
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.run_native_analysis_helper",
+            return_value=helper_result,
+        ) as helper_mock, patch(
+            "audio_processing.librosa.load",
+            side_effect=AssertionError("librosa should not run when native helper succeeds"),
+        ):
+            result = analyze_audio("song.wav")
+
+        helper_mock.assert_called_once_with("song.wav")
+        self.assertEqual(result["analysis_backend"], "essentia-cpp")
+        self.assertEqual(result["key"], "F# Major")
+        self.assertAlmostEqual(result["bpm"], 110.02)
+
+    def test_analyze_audio_normalizes_flat_keys_from_native_helper(self) -> None:
+        helper_result = NativeAnalysisResult(
+            backend="essentia-cpp",
+            duration=191.0,
+            bpm=110.02,
+            key="Eb Major",
+            scale="major",
+            confidence=0.91,
+            candidates=[
+                AnalysisCandidate("Eb Major", 0.91),
+                AnalysisCandidate("C Minor", 0.07),
+            ],
+            error=None,
+        )
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.run_native_analysis_helper",
+            return_value=helper_result,
+        ):
+            result = analyze_audio("song.wav", key_hint="D# Major")
+
+        self.assertEqual(result["key"], "D# Major")
+        self.assertEqual(result["relative_key"], "C Minor")
+        self.assertEqual(result["analysis_backend"], "essentia-cpp")
+
+    def test_analyze_audio_falls_back_to_librosa_when_helper_fails_in_auto_mode(self) -> None:
+        fake_audio = np.ones(2048, dtype=np.float32)
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "auto"}, clear=False), patch(
+            "audio_processing.run_native_analysis_helper",
+            side_effect=AnalysisHelperError("helper failed"),
+        ), patch(
+            "audio_processing.librosa.load",
+            return_value=(fake_audio, 22050),
+        ) as load_mock, patch(
+            "audio_processing.librosa.get_duration",
+            return_value=30.0,
+        ), patch(
+            "audio_processing.librosa.beat.beat_track",
+            return_value=(np.array([128.0], dtype=np.float32), None),
+        ), patch(
+            "audio_processing.detect_key",
+            return_value="C Major",
+        ):
+            result = analyze_audio("song.wav")
+
+        load_mock.assert_called_once_with("song.wav", sr=None, mono=True)
+        self.assertEqual(result["analysis_backend"], "librosa")
+        self.assertEqual(result["key"], "C Major")
+        self.assertEqual(result["analysis_fallback_reason"], "helper failed")
+
+    def test_analyze_audio_native_helper_converts_non_wav_with_ffmpeg(self) -> None:
+        helper_result = NativeAnalysisResult(
+            backend="essentia-cpp",
+            duration=191.0,
+            bpm=110.02,
+            key="F# Major",
+            scale="major",
+            confidence=0.91,
+            candidates=[AnalysisCandidate("F# Major", 0.91)],
+            error=None,
+        )
+
+        def fake_ffmpeg_run(command, check, capture_output, text, timeout):
+            self.assertIn("ffmpeg", command[0].lower())
+            output_path = Path(command[-1])
+            output_path.write_bytes(b"RIFF")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.find_executable",
+            side_effect=lambda name: "ffmpeg.exe" if name == "ffmpeg" else None,
+        ), patch(
+            "audio_processing.subprocess.run",
+            side_effect=fake_ffmpeg_run,
+        ), patch(
+            "audio_processing.run_native_analysis_helper",
+            return_value=helper_result,
+        ) as helper_mock:
+            result = analyze_audio("song.mp3")
+
+        helper_arg = helper_mock.call_args.args[0]
+        self.assertTrue(str(helper_arg).endswith(".wav"))
+        self.assertNotEqual(helper_arg, "song.mp3")
+        self.assertEqual(result["analysis_backend"], "essentia-cpp")
+        self.assertEqual(result["key"], "F# Major")
+        self.assertTrue(result["analysis_prepared_with_ffmpeg"])
+        self.assertEqual(result["analysis_ffmpeg_path"], "ffmpeg.exe")
+
+    def test_analyze_audio_native_helper_requires_ffmpeg_for_non_wav(self) -> None:
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.find_executable",
+            return_value=None,
+        ):
+            with self.assertRaisesRegex(
+                DependencyError,
+                "ffmpeg is required to prepare non-WAV files for native analysis",
+            ):
+                analyze_audio("song.flac")
+
     def test_analyze_audio_returns_metadata_for_wav(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             wav_path = Path(temp_dir) / "tone.wav"
@@ -37,16 +192,147 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertGreater(result["duration"], 1.5)
             self.assertIsInstance(result["bpm"], float)
             self.assertTrue(result["key"])
+            self.assertEqual(result["relative_key"], get_relative_key(result["key"]))
+            self.assertEqual(result["compatible_keys"], get_compatible_keys(result["key"]))
+
+    def test_key_relationship_helpers_return_relative_and_compatible_keys(self) -> None:
+        self.assertEqual(get_relative_key("C Major"), "A Minor")
+        self.assertEqual(get_relative_key("A Minor"), "C Major")
+        self.assertEqual(get_relative_key("Eb Major"), "C Minor")
+        self.assertEqual(normalize_key_name("Bb Minor"), "A# Minor")
+        self.assertEqual(
+            get_compatible_keys("C Major"),
+            ["A Minor", "G Major", "E Minor", "F Major", "D Minor"],
+        )
+        self.assertEqual(
+            get_compatible_keys("A Minor"),
+            ["C Major", "E Minor", "G Major", "D Minor", "F Major"],
+        )
+
+    def test_normalize_bpm_to_range_hint_prefers_value_inside_selected_band(self) -> None:
+        self.assertEqual(normalize_bpm_to_range_hint(75.0, (140.0, 160.0)), 150.0)
+        self.assertEqual(normalize_bpm_to_range_hint(128.0, None), 128.0)
+
+    def test_bpm_hint_from_label_supports_exact_value_and_range(self) -> None:
+        self.assertEqual(bpm_hint_from_label("128"), BPMAnalysisHint(exact_bpm=128.0))
+        self.assertEqual(bpm_hint_from_label("102.474 BPM"), BPMAnalysisHint(exact_bpm=102.474))
+        self.assertEqual(bpm_hint_from_label("120-130"), BPMAnalysisHint(bpm_range=(120.0, 130.0)))
+        self.assertEqual(bpm_hint_from_label("130 to 120 BPM"), BPMAnalysisHint(bpm_range=(120.0, 130.0)))
+        self.assertIsNone(bpm_hint_from_label("not-a-range"))
+
+    def test_bpm_range_from_label_only_returns_ranges(self) -> None:
+        self.assertIsNone(bpm_range_from_label("128"))
+        self.assertEqual(bpm_range_from_label("120-130"), (120.0, 130.0))
+
+    def test_apply_bpm_analysis_hint_uses_exact_manual_bpm(self) -> None:
+        self.assertEqual(apply_bpm_analysis_hint(51.237, BPMAnalysisHint(exact_bpm=102.474)), 102.474)
+        self.assertEqual(apply_bpm_analysis_hint(None, BPMAnalysisHint(exact_bpm=102.0)), 102.0)
+        self.assertEqual(
+            apply_bpm_analysis_hint(75.0, BPMAnalysisHint(bpm_range=(140.0, 160.0))),
+            150.0,
+        )
+
+    def test_rubberband_args_vary_by_processing_mode(self) -> None:
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_BALANCED, "tempo"),
+            {"--fast": "", "--centre-focus": "", "--crisp": "5"},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_HIGH_QUALITY_MIX, "pitch"),
+            {"--fine": "", "--realtime": "", "--pitch-hq": ""},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_VOCAL, "pitch"),
+            {"--fine": "", "--centre-focus": "", "--realtime": "", "--pitch-hq": "", "--formant": ""},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_PERCUSSIVE, "tempo"),
+            {"--fast": "", "--centre-focus": "", "--crisp": "6"},
+        )
+        self.assertEqual(
+            _rubberband_args_for_processing_mode(PROCESSING_MODE_FAST_PREVIEW, "tempo"),
+            {"--fast": "", "--crisp": "4"},
+        )
+
+    def test_time_stretch_uses_multichannel_rubberband_path(self) -> None:
+        stereo_audio = np.array(
+            [
+                [0.1, 0.2, 0.3, 0.4],
+                [1.1, 1.2, 1.3, 1.4],
+            ],
+            dtype=np.float32,
+        )
+
+        def fake_time_stretch(y, sr, rate, rbargs=None):
+            self.assertEqual(sr, 44100)
+            self.assertEqual(rate, 1.25)
+            self.assertEqual(rbargs, {"--fine": ""})
+            self.assertEqual(y.shape, (4, 2))
+            np.testing.assert_allclose(y[:, 0], stereo_audio[0])
+            np.testing.assert_allclose(y[:, 1], stereo_audio[1])
+            return y + 2.0
+
+        fake_pyrb = SimpleNamespace(time_stretch=fake_time_stretch)
+
+        with patch("audio_processing.find_executable", return_value="rubberband"), patch(
+            "audio_processing.pyrb",
+            fake_pyrb,
+        ):
+            result = _time_stretch(
+                stereo_audio,
+                44100,
+                1.25,
+                processing_mode=PROCESSING_MODE_HIGH_QUALITY_MIX,
+            )
+
+        self.assertEqual(result.shape, stereo_audio.shape)
+        np.testing.assert_allclose(result, stereo_audio + 2.0)
+
+    def test_pitch_shift_uses_multichannel_rubberband_path(self) -> None:
+        stereo_audio = np.array(
+            [
+                [0.5, 0.6, 0.7],
+                [1.5, 1.6, 1.7],
+            ],
+            dtype=np.float32,
+        )
+
+        def fake_pitch_shift(y, sr, n_steps, rbargs=None):
+            self.assertEqual(sr, 48000)
+            self.assertEqual(n_steps, 3.0)
+            self.assertEqual(
+                rbargs,
+                {"--fine": "", "--centre-focus": "", "--realtime": "", "--pitch-hq": "", "--formant": ""},
+            )
+            self.assertEqual(y.shape, (3, 2))
+            np.testing.assert_allclose(y[:, 0], stereo_audio[0])
+            np.testing.assert_allclose(y[:, 1], stereo_audio[1])
+            return y * 0.5
+
+        fake_pyrb = SimpleNamespace(pitch_shift=fake_pitch_shift)
+
+        with patch("audio_processing.find_executable", return_value="rubberband"), patch(
+            "audio_processing.pyrb",
+            fake_pyrb,
+        ):
+            result = _pitch_shift(
+                stereo_audio,
+                48000,
+                3.0,
+                processing_mode=PROCESSING_MODE_VOCAL,
+            )
+
+        self.assertEqual(result.shape, stereo_audio.shape)
+        np.testing.assert_allclose(result, stereo_audio * 0.5)
 
     def test_action_runtime_issues_flags_missing_ffmpeg_for_mp3(self) -> None:
         fake_report = {
+            "native_analysis_helper": {"available": False, "detail": None},
             "librosa": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},
             "pyrubberband": {"available": True, "detail": None},
             "torch": {"available": True, "detail": None},
-            "torchaudio": {"available": True, "detail": None},
-            "torchcodec": {"available": True, "detail": None},
             "rubberband": {"available": False, "detail": None},
             "ffmpeg": {"available": False, "detail": None},
             "demucs": {"available": True, "detail": None},
@@ -59,15 +345,35 @@ class AudioProcessingTests(unittest.TestCase):
         self.assertIn("ffmpeg is required to decode mp3 and m4a files.", issues)
         self.assertEqual(no_issues, [])
 
-    def test_action_base_requirement_message_includes_missing_torchcodec(self) -> None:
+    def test_action_runtime_issues_flags_missing_ffmpeg_for_native_helper_non_wav(self) -> None:
         fake_report = {
+            "native_analysis_helper": {"available": True, "detail": None},
             "librosa": {"available": True, "detail": None},
             "numpy": {"available": True, "detail": None},
             "soundfile": {"available": True, "detail": None},
             "pyrubberband": {"available": True, "detail": None},
             "torch": {"available": True, "detail": None},
-            "torchaudio": {"available": True, "detail": None},
-            "torchcodec": {"available": False, "detail": None},
+            "rubberband": {"available": True, "detail": None},
+            "ffmpeg": {"available": False, "detail": None},
+            "demucs": {"available": True, "detail": None},
+        }
+
+        with patch.dict("os.environ", {"TUNEMATRIX_ANALYSIS_BACKEND": "native_helper"}, clear=False), patch(
+            "audio_processing.get_dependency_report",
+            return_value=fake_report,
+        ):
+            issues = action_runtime_issues("analyze", ["track.flac"])
+
+        self.assertIn("ffmpeg is required to prepare non-WAV files for native analysis.", issues)
+
+    def test_action_base_requirement_message_for_separate_only_requires_demucs_stack(self) -> None:
+        fake_report = {
+            "native_analysis_helper": {"available": False, "detail": None},
+            "librosa": {"available": True, "detail": None},
+            "numpy": {"available": True, "detail": None},
+            "soundfile": {"available": True, "detail": None},
+            "pyrubberband": {"available": True, "detail": None},
+            "torch": {"available": True, "detail": None},
             "rubberband": {"available": False, "detail": None},
             "ffmpeg": {"available": True, "detail": None},
             "demucs": {"available": True, "detail": None},
@@ -76,8 +382,118 @@ class AudioProcessingTests(unittest.TestCase):
         with patch("audio_processing.get_dependency_report", return_value=fake_report):
             message = action_base_requirement_message("separate")
 
-        self.assertIsNotNone(message)
-        self.assertIn("torchcodec", message)
+        self.assertIsNone(message)
+
+    def test_separate_song_stems_writes_requested_stems(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            wav_path = temp_root / "tone.wav"
+            stems_root = temp_root / "stems"
+            create_test_wave(wav_path)
+
+            song = SongRecord.from_path(str(wav_path))
+            fake_sources = th.tensor(
+                [
+                    [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+                    [[0.2, 0.2, 0.2], [0.2, 0.2, 0.2]],
+                    [[0.3, 0.3, 0.3], [0.3, 0.3, 0.3]],
+                    [[0.4, 0.4, 0.4], [0.4, 0.4, 0.4]],
+                ],
+                dtype=th.float32,
+            )
+
+            class FakeModel:
+                samplerate = 44100
+                audio_channels = 2
+                sources = ["drums", "bass", "other", "vocals"]
+
+            with patch("audio_processing.make_song_cache_dir", return_value=str(stems_root)), patch(
+                "audio_processing.action_runtime_issues", return_value=[]
+            ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
+                "audio_processing.librosa.load",
+                return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
+            ), patch("audio_processing._log"), patch(
+                "audio_processing._apply_demucs_model_with_cancel", return_value=fake_sources.unsqueeze(0)
+            ):
+                result = separate_song_stems(song, "Vocals")
+
+            stem_dir = Path(result["stems_dir"])
+            self.assertTrue((stem_dir / "vocals.wav").exists())
+            self.assertFalse((stem_dir / "karaoke_no_vocals.wav").exists())
+
+    def test_separate_song_stems_writes_karaoke_no_vocals_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            wav_path = temp_root / "tone.wav"
+            stems_root = temp_root / "karaoke_stems"
+            create_test_wave(wav_path)
+
+            song = SongRecord.from_path(str(wav_path))
+            fake_sources = th.tensor(
+                [
+                    [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+                    [[0.2, 0.2, 0.2], [0.2, 0.2, 0.2]],
+                    [[0.3, 0.3, 0.3], [0.3, 0.3, 0.3]],
+                    [[0.4, 0.4, 0.4], [0.4, 0.4, 0.4]],
+                ],
+                dtype=th.float32,
+            )
+
+            class FakeModel:
+                samplerate = 44100
+                audio_channels = 2
+                sources = ["drums", "bass", "other", "vocals"]
+
+            with patch("audio_processing.make_song_cache_dir", return_value=str(stems_root)), patch(
+                "audio_processing.action_runtime_issues", return_value=[]
+            ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
+                "audio_processing.librosa.load",
+                return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
+            ), patch("audio_processing._log"), patch(
+                "audio_processing._apply_demucs_model_with_cancel", return_value=fake_sources.unsqueeze(0)
+            ):
+                result = separate_song_stems(song, "Karaoke / No vocals")
+
+            stem_dir = Path(result["stems_dir"])
+            self.assertTrue((stem_dir / "karaoke_no_vocals.wav").exists())
+
+    def test_separate_song_stems_filters_multiple_selected_stems(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            wav_path = temp_root / "tone.wav"
+            stems_root = temp_root / "multi_stems"
+            create_test_wave(wav_path)
+
+            song = SongRecord.from_path(str(wav_path))
+            fake_sources = th.tensor(
+                [
+                    [[0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+                    [[0.2, 0.2, 0.2], [0.2, 0.2, 0.2]],
+                    [[0.3, 0.3, 0.3], [0.3, 0.3, 0.3]],
+                    [[0.4, 0.4, 0.4], [0.4, 0.4, 0.4]],
+                ],
+                dtype=th.float32,
+            )
+
+            class FakeModel:
+                samplerate = 44100
+                audio_channels = 2
+                sources = ["drums", "bass", "other", "vocals"]
+
+            with patch("audio_processing.make_song_cache_dir", return_value=str(stems_root)), patch(
+                "audio_processing.action_runtime_issues", return_value=[]
+            ), patch("audio_processing._load_demucs_model", return_value=FakeModel()), patch(
+                "audio_processing.librosa.load",
+                return_value=(np.vstack([np.ones(100, dtype=np.float32), np.ones(100, dtype=np.float32)]), 44100),
+            ), patch("audio_processing._log"), patch(
+                "audio_processing._apply_demucs_model_with_cancel", return_value=fake_sources.unsqueeze(0)
+            ):
+                result = separate_song_stems(song, "All stems", selected_stems=["Vocals", "Bass"])
+
+            stem_dir = Path(result["stems_dir"])
+            self.assertTrue((stem_dir / "vocals.wav").exists())
+            self.assertTrue((stem_dir / "bass.wav").exists())
+            self.assertFalse((stem_dir / "drums.wav").exists())
 
     def test_match_tempo_key_and_export_processed_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -107,6 +523,22 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertEqual(len(export_result["paths"]), 1)
             self.assertTrue(Path(export_result["paths"][0]).exists())
 
+    def test_match_song_key_logs_clear_message_when_mode_conversion_is_not_possible(self) -> None:
+        song = SongRecord.from_path("demo.wav")
+        song.duration = 10.0
+        song.musical_key = "E Minor"
+
+        logs: list[str] = []
+        result = match_song_key(song, "E Major", log_callback=logs.append)
+
+        self.assertEqual(result["key"], "E Minor")
+        self.assertEqual(
+            logs,
+            [
+                "demo.wav already has the target root note. TuneMatrix cannot convert Minor to Major, so no pitch shift was applied."
+            ],
+        )
+
     def test_export_song_artifacts_copies_original_when_no_processed_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -120,6 +552,54 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertTrue(result["copied_original_only"])
             self.assertEqual(len(result["paths"]), 1)
             self.assertTrue(Path(result["paths"][0]).exists())
+
+    def test_export_processed_filename_uses_display_preference_for_key_suffix(self) -> None:
+        song = SongRecord.from_path("demo.wav")
+        song.processed_path = str(Path("cache") / "demo_key_D_Minor.wav")
+        song.musical_key = "D# Minor"
+
+        self.assertEqual(_export_processed_filename(song), "demo_key_Dsharp_Minor.wav")
+        self.assertEqual(
+            _export_processed_filename(song, "prefer_flats"),
+            "demo_key_Eb_Minor.wav",
+        )
+
+    def test_export_song_artifacts_renames_key_based_exports_using_display_preference(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            processed_path = temp_root / "demo_key_D_Minor.wav"
+            export_dir = temp_root / "exports"
+            create_test_wave(processed_path)
+
+            song = SongRecord.from_path(str(temp_root / "demo.wav"))
+            song.processed_path = str(processed_path)
+            song.musical_key = "D# Minor"
+
+            result = export_song_artifacts(song, str(export_dir), key_display_preference="prefer_flats")
+
+            exported_path = Path(result["paths"][0])
+            self.assertEqual(exported_path.name, "demo_key_Eb_Minor.wav")
+            self.assertTrue(exported_path.exists())
+
+    def test_apply_demucs_model_with_cancel_stops_between_chunks(self) -> None:
+        class FakeDemucs(th.nn.Module):
+            samplerate = 10
+            audio_channels = 2
+            sources = ["drums", "vocals"]
+            segment = 0.5
+
+            def forward(self, x):
+                return th.stack([x, x], dim=1)
+
+        mix = th.ones(1, 2, 20, dtype=th.float32)
+        cancel_checks = {"count": 0}
+
+        def cancel_callback() -> bool:
+            cancel_checks["count"] += 1
+            return cancel_checks["count"] >= 3
+
+        with self.assertRaises(TaskCanceledError):
+            _apply_demucs_model_with_cancel(FakeDemucs(), mix, cancel_callback=cancel_callback, device="cpu")
 
 
 if __name__ == "__main__":

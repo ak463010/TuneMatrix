@@ -27,7 +27,7 @@ The current dependency list includes:
 - `soundfile`
 - `pyrubberband`
 - `demucs`
-- `torchcodec`
+- `torch`
 
 ## External Tools
 
@@ -50,14 +50,22 @@ If `rubberband` is missing:
 - the app can still fall back to `librosa` for tempo and key processing
 - quality and behavior may differ from Rubber Band
 
-### torchcodec
+### Demucs Runtime
 
-The current Demucs runtime in this environment requires `torchcodec`.
+Stem separation uses Demucs in-process.
 
-If `torchcodec` is missing:
+If the Demucs runtime is incomplete:
 
 - `Separate Stems` is disabled
 - `Process All` is disabled because it includes stem separation
+
+At minimum, make sure these Python packages are installed:
+
+- `demucs`
+- `torch`
+- `numpy`
+- `librosa`
+- `soundfile`
 
 ## Start the Application
 
@@ -69,9 +77,28 @@ python main.py
 
 On first launch, check the bottom log panel. TuneMatrix logs the detected dependency state at startup.
 
+The startup log intentionally reports only the dependencies used by the current implementation:
+
+- `librosa`
+- `numpy`
+- `soundfile`
+- `pyrubberband`
+- `rubberband`
+- `ffmpeg`
+- `torch`
+- `demucs`
+
 ## Output Locations
 
-- Processed temporary files are written under the system temp directory in a `TuneMatrix` folder
+- On Windows, processed temporary files are written under:
+
+```text
+C:\Users\<you>\AppData\Local\Temp\TuneMatrix\
+```
+
+- Inside that cache root, TuneMatrix creates per-song folders under:
+  - `processed\`
+  - `stems\`
 - Exported files are written to the selected export directory
 - Originals are never modified
 
@@ -81,8 +108,13 @@ After setup:
 
 1. Launch the app.
 2. Import a `wav` file first.
-3. Run `Analyze`.
-4. Run `Match Tempo` or `Match Key`.
-5. Export the result.
+3. Leave each song row's `BPM Range` and `Key Hint` columns on `Auto` unless you want to guide analysis.
+   `BPM Range` keeps preset dropdown choices and also includes `Enter BPM...` for manual exact BPM input such as `102.474` or manual ranges such as `102.474-110.2`.
+4. Run `Analyze` and confirm the table fills detected key, relative key, and compatible keys.
+5. In the right sidebar, choose a per-song `Processing Mode` if you want to tune tempo/key quality:
+   `Balanced`, `High Quality Mix`, `Vocal`, `Percussive`, or `Fast Preview`.
+   `High Quality Mix` is the better choice for wide full-song mixes and now uses Rubber Band's slower high-quality pitch path, while `Vocal` keeps lead vocals more centered and stable with formant preservation.
+6. Run `Match Tempo` or `Match Key`.
+7. Export the result.
 
 Then use [Testing Guide](TESTING.md) to verify the installation.
