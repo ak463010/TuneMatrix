@@ -9,6 +9,9 @@ This project follows [Semantic Versioning](https://semver.org/) once public rele
 ### Added
 
 - Open-source project guidelines, community files, issue templates, and release documentation.
+- GitHub Actions release-artifact workflow for Windows, macOS, and Linux preview binaries.
+- Packaging helpers for PyInstaller, Windows NSIS installer output, macOS DMG output, and Linux Debian package output.
+- Packaged-app smoke-test launch mode and packaging documentation.
 
 ### Changed
 

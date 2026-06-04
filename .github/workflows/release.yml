@@ -1,0 +1,162 @@
+name: Release Artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact-suffix }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact-suffix: windows-x64
+            portable-name: windows-x64.zip
+          - os: macos-latest
+            artifact-suffix: macos
+            portable-name: macos.zip
+          - os: ubuntu-latest
+            artifact-suffix: linux-x64
+            portable-name: linux-x64.tar.gz
+
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHON_VERSION: "3.11"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set release version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "RELEASE_VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_VERSION=dev-${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
+            requirements-build.txt
+
+      - name: Install Linux GUI test packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1 libegl1 libxkbcommon-x11-0 dpkg-dev
+
+      - name: Install Windows installer tools
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: choco install nsis -y --no-progress
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+          pip install -r requirements-build.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build PyInstaller app
+        run: pyinstaller --noconfirm --clean packaging/pyinstaller/TuneMatrix.spec
+
+      - name: Smoke test Windows app
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\dist\TuneMatrix\TuneMatrix.exe --smoke-test
+
+      - name: Smoke test macOS app
+        if: runner.os == 'macOS'
+        run: |
+          if [ -x "dist/TuneMatrix.app/Contents/MacOS/TuneMatrix" ]; then
+            dist/TuneMatrix.app/Contents/MacOS/TuneMatrix --smoke-test
+          else
+            dist/TuneMatrix/TuneMatrix --smoke-test
+          fi
+
+      - name: Smoke test Linux app
+        if: runner.os == 'Linux'
+        run: xvfb-run -a dist/TuneMatrix/TuneMatrix --smoke-test
+
+      - name: Create artifact directory
+        shell: bash
+        run: mkdir -p release-artifacts
+
+      - name: Create Windows portable archive
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Compress-Archive -Path .\dist\TuneMatrix -DestinationPath "release-artifacts\TuneMatrix-$env:RELEASE_VERSION-windows-x64.zip" -Force
+
+      - name: Create macOS portable archive
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d "dist/TuneMatrix.app" ]; then
+            ditto -c -k --sequesterRsrc --keepParent dist/TuneMatrix.app "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos.zip"
+          else
+            ditto -c -k --keepParent dist/TuneMatrix "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos.zip"
+          fi
+
+      - name: Create Linux portable archive
+        if: runner.os == 'Linux'
+        run: tar -czf "release-artifacts/TuneMatrix-${RELEASE_VERSION}-linux-x64.tar.gz" -C dist TuneMatrix
+
+      - name: Create Windows NSIS installer
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: makensis /DAPP_VERSION="$env:RELEASE_VERSION" /DDIST_DIR="$pwd\dist\TuneMatrix" /DOUTPUT_DIR="$pwd\release-artifacts" packaging\nsis\TuneMatrix.nsi
+
+      - name: Create macOS DMG
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dmg-root
+          if [ -d "dist/TuneMatrix.app" ]; then
+            cp -R dist/TuneMatrix.app dmg-root/
+          else
+            cp -R dist/TuneMatrix dmg-root/
+          fi
+          hdiutil create -volname "TuneMatrix" -srcfolder dmg-root -ov -format UDZO "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos.dmg"
+
+      - name: Create Linux Debian package
+        if: runner.os == 'Linux'
+        run: python packaging/linux/build_deb.py --dist-dir dist/TuneMatrix --output-dir release-artifacts --version "$RELEASE_VERSION"
+
+      - name: List release artifacts
+        shell: bash
+        run: ls -la release-artifacts
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TuneMatrix-${{ env.RELEASE_VERSION }}-${{ matrix.artifact-suffix }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+      - name: Upload artifacts to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if ! gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            gh release create "$RELEASE_VERSION" --title "$RELEASE_VERSION" --notes "TuneMatrix $RELEASE_VERSION release artifacts. See CHANGELOG.md and docs/PACKAGING.md for details."
+          fi
+          gh release upload "$RELEASE_VERSION" release-artifacts/* --clobber

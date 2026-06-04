@@ -154,6 +154,7 @@ See [docs/TESTING.md](docs/TESTING.md) for cross-platform commands and CI detail
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Feature Status](docs/FEATURE_STATUS.md)
 - [Release Process](docs/RELEASE.md)
+- [Packaging and Release Artifacts](docs/PACKAGING.md)
 
 ## Project Layout
 
@@ -185,7 +186,9 @@ Please do not report security vulnerabilities in public issues. See [SECURITY.md
 
 ## Releases
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes and [docs/RELEASE.md](docs/RELEASE.md) for the maintainer release checklist.
+See [CHANGELOG.md](CHANGELOG.md) for release notes, [docs/RELEASE.md](docs/RELEASE.md) for the maintainer release checklist, and [docs/PACKAGING.md](docs/PACKAGING.md) for downloadable Windows, macOS, and Linux artifact details.
+
+Release artifacts are built by GitHub Actions when version tags such as `v0.1.0` are pushed. The first artifacts are unsigned preview builds; Windows SmartScreen and macOS Gatekeeper warnings are expected until signing/notarization is added.
 
 ## License
 

@@ -40,8 +40,9 @@ Cause:
 - missing `demucs`
 - missing Torch runtime pieces
 - missing `librosa`, `numpy`, or `soundfile` required by the in-process stem path
+- packaged/frozen release artifacts where Demucs support is still experimental
 
-Fix:
+Fix for source installs:
 
 ```powershell
 pip install -r requirements.txt
@@ -50,6 +51,8 @@ pip install -r requirements.txt
 Then restart the application.
 
 If the problem continues, verify in the app log that `demucs`, `torch`, `librosa`, `numpy`, and `soundfile` are all available.
+
+For packaged GitHub release artifacts, stem separation should be treated as experimental until that release's notes explicitly say it is verified. If you need reliable Demucs behavior, run TuneMatrix from source in a controlled Python environment.
 
 ## Tempo or Key Matching Quality Is Poor
 
@@ -93,6 +96,28 @@ Notes:
 
 - the relative key is the strict major/minor pair for the detected key
 - compatible keys are generated from a circle-of-fifths style heuristic, not full musical analysis
+
+## Packaged App Shows Security Warnings
+
+The first GitHub release artifacts are unsigned preview builds.
+
+Common warnings:
+
+- Windows may show Microsoft Defender SmartScreen warnings for the setup executable or portable app.
+- macOS may show Gatekeeper warnings because the app is not notarized.
+- Linux may require marking an extracted executable as executable depending on the archive tool and filesystem.
+
+These warnings do not necessarily mean the artifact is corrupt, but you should only download release artifacts from the official GitHub Releases page.
+
+## Packaged App Cannot Find ffmpeg or rubberband
+
+The first release artifacts do not bundle third-party runtime binaries by default.
+
+Fix:
+
+- install `ffmpeg` or `rubberband` and make sure it is on `PATH`
+- or stage compatible binaries into the bundled `tools/` layout described in [tools/README.md](../tools/README.md)
+- restart TuneMatrix after changing tool locations
 
 ## Tests Fail on Headless Machines
 

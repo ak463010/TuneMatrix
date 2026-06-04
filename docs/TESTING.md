@@ -87,9 +87,19 @@ You may see warnings from `librosa` or `audioread` during the synthetic-audio te
 
 These are currently expected and do not fail the suite.
 
+## Packaged-App Smoke Tests
+
+TuneMatrix supports a non-interactive smoke mode for release artifacts:
+
+```powershell
+python main.py --smoke-test
+```
+
+In release builds, GitHub Actions runs the frozen executable with `--smoke-test` after PyInstaller packaging. This verifies that the packaged app can start Qt, construct the main window, and exit cleanly.
+
 ## Integration Test Scope
 
-The default suite does not run heavy Demucs integration tests or packaged-binary smoke tests. Those should be added behind an explicit environment flag or separate CI job when the runtime and model-download behavior are stable enough for automation.
+The default unit suite does not run heavy Demucs integration tests. Those should be added behind an explicit environment flag or separate CI job when the runtime and model-download behavior are stable enough for automation.
 
 ## Adding More Tests
 
