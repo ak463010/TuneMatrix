@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
-SPEC_DIR = Path(__file__).resolve().parent
+SPEC_DIR = Path(SPECPATH).resolve()
 REPO_ROOT = SPEC_DIR.parents[1]
 MAIN_SCRIPT = REPO_ROOT / "main.py"
 
