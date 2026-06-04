@@ -2,6 +2,7 @@
 
 import sys
 from importlib.util import find_spec
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
@@ -13,6 +14,17 @@ def collect_if_available(package_name, collector):
         return collector(package_name)
     except Exception:
         return []
+
+
+def collect_staged_tool_files():
+    tool_root = Path("tools")
+    if not tool_root.exists():
+        return []
+    collected = []
+    for path in tool_root.rglob("*"):
+        if path.is_file() and path.name != ".gitkeep":
+            collected.append((str(path), str(path.parent)))
+    return collected
 
 
 hiddenimports = []
@@ -37,6 +49,8 @@ for package_name in (
     "torchcodec",
 ):
     datas += collect_if_available(package_name, collect_data_files)
+
+datas += collect_staged_tool_files()
 
 binaries = []
 for package_name in (
