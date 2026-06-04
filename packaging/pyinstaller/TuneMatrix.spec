@@ -6,6 +6,10 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
+SPEC_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SPEC_DIR.parents[1]
+MAIN_SCRIPT = REPO_ROOT / "main.py"
+
 
 def collect_if_available(package_name, collector):
     if find_spec(package_name) is None:
@@ -17,13 +21,13 @@ def collect_if_available(package_name, collector):
 
 
 def collect_staged_tool_files():
-    tool_root = Path("tools")
+    tool_root = REPO_ROOT / "tools"
     if not tool_root.exists():
         return []
     collected = []
     for path in tool_root.rglob("*"):
         if path.is_file() and path.name != ".gitkeep":
-            collected.append((str(path), str(path.parent)))
+            collected.append((str(path), str(path.parent.relative_to(REPO_ROOT))))
     return collected
 
 
@@ -62,8 +66,8 @@ for package_name in (
     binaries += collect_if_available(package_name, collect_dynamic_libs)
 
 analysis = Analysis(
-    ["main.py"],
-    pathex=[],
+    [str(MAIN_SCRIPT)],
+    pathex=[str(REPO_ROOT)],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
