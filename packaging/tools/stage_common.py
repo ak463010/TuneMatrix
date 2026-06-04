@@ -104,6 +104,18 @@ def copy_executable(source: Path, target: Path) -> None:
     print(f"Staged {target}")
 
 
+def copy_runtime_siblings(source: Path, target_dir: Path) -> None:
+    """Copy files next to an executable so DLL/dylib dependencies are preserved."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for candidate in source.parent.iterdir():
+        if candidate.is_file():
+            target = target_dir / candidate.name
+            shutil.copy2(candidate, target)
+            mode = target.stat().st_mode
+            target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            print(f"Staged {target}")
+
+
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

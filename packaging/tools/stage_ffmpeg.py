@@ -4,6 +4,7 @@ from pathlib import Path
 
 from stage_common import (
     copy_executable,
+    copy_runtime_siblings,
     download_file,
     extract_archive,
     find_first,
@@ -48,6 +49,10 @@ def stage_ffmpeg(platform: str, tools_dir: Path, downloads_dir: Path, skip_unsup
     tool_root = tools_dir / "ffmpeg"
     bin_root = tool_root / "bin"
     ffmpeg_source = find_first(extracted, [tool_binary_name("ffmpeg", platform)])
+    copy_runtime_siblings(ffmpeg_source, bin_root)
+
+    # Ensure the primary executables have the expected normalized names even if
+    # the upstream archive layout changes.
     copy_executable(ffmpeg_source, bin_root / tool_binary_name("ffmpeg", platform))
 
     try:

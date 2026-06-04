@@ -4,6 +4,7 @@ from pathlib import Path
 
 from stage_common import (
     copy_executable,
+    copy_runtime_siblings,
     download_file,
     extract_archive,
     find_first,
@@ -44,6 +45,10 @@ def stage_rubberband(platform: str, tools_dir: Path, downloads_dir: Path, skip_u
     tool_root = tools_dir / "rubberband"
     bin_root = tool_root / "bin"
     rubberband_source = find_first(extracted, [tool_binary_name("rubberband", platform)])
+    copy_runtime_siblings(rubberband_source, bin_root)
+
+    # Ensure the primary executable has the expected normalized name even if the
+    # upstream archive layout changes.
     copy_executable(rubberband_source, bin_root / tool_binary_name("rubberband", platform))
 
     notice = """

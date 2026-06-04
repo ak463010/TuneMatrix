@@ -84,20 +84,33 @@ jobs:
       - name: Stage bundled Rubber Band
         run: python packaging/tools/stage_rubberband.py --platform ${{ matrix.tool-platform }} --skip-unsupported
 
-      - name: Verify staged runtime tools
+      - name: Verify staged runtime tools on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          if (Test-Path "tools\ffmpeg\bin\ffmpeg.exe") {
+            & "tools\ffmpeg\bin\ffmpeg.exe" -version
+          } else {
+            "No bundled ffmpeg staged for ${{ matrix.tool-platform }}."
+          }
+
+          if (Test-Path "tools\rubberband\bin\rubberband.exe") {
+            & "tools\rubberband\bin\rubberband.exe" --version
+          } else {
+            "No bundled Rubber Band staged for ${{ matrix.tool-platform }}."
+          }
+
+      - name: Verify staged runtime tools on Unix
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          if [ -x tools/ffmpeg/bin/ffmpeg.exe ]; then
-            tools/ffmpeg/bin/ffmpeg.exe -version
-          elif [ -x tools/ffmpeg/bin/ffmpeg ]; then
+          if [ -x tools/ffmpeg/bin/ffmpeg ]; then
             tools/ffmpeg/bin/ffmpeg -version
           else
             echo "No bundled ffmpeg staged for ${{ matrix.tool-platform }}."
           fi
 
-          if [ -x tools/rubberband/bin/rubberband.exe ]; then
-            tools/rubberband/bin/rubberband.exe --version
-          elif [ -x tools/rubberband/bin/rubberband ]; then
+          if [ -x tools/rubberband/bin/rubberband ]; then
             tools/rubberband/bin/rubberband --version
           else
             echo "No bundled Rubber Band staged for ${{ matrix.tool-platform }}."
