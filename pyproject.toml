@@ -1,0 +1,34 @@
+[project]
+name = "tunematrix"
+version = "0.1.0"
+description = "Desktop music-processing application built with Python and PySide6."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Avinash Kumar" }
+]
+keywords = ["music", "audio", "pyside6", "desktop", "demucs"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: X11 Applications :: Qt",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio",
+]
+
+[project.urls]
+Homepage = "https://github.com/ak463010/TuneMatrix"
+Repository = "https://github.com/ak463010/TuneMatrix"
+Issues = "https://github.com/ak463010/TuneMatrix/issues"
+
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

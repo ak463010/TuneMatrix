@@ -172,6 +172,30 @@ The window:
 - restores songs, table rows, and control state from a saved project
 - marks missing source files as `Error` on restore instead of silently dropping them
 
+## Contributor Guardrails
+
+When changing TuneMatrix, preserve these architectural expectations:
+
+- keep the Qt event loop responsive by avoiding long-running work on the UI thread
+- run audio analysis, processing, export, and stem work through worker objects and `QThread` flows
+- never mutate original media files; write generated artifacts to cache/export locations only
+- keep optional dependency failures clear and user-facing instead of crashing
+- keep dependency checks close to the actions that need them so unsupported workflows stay disabled or blocked with useful messages
+- update tests and docs when behavior, dependencies, or limitations change
+
+## Contribution Areas
+
+Common contribution entry points:
+
+- UI and workflow behavior: [main_window.py](../main_window.py)
+- threaded task orchestration: [workers.py](../workers.py)
+- analysis, processing, export, and dependency checks: [audio_processing.py](../audio_processing.py)
+- native-helper discovery and invocation: [analysis_helper.py](../analysis_helper.py)
+- shared data structures and constants: [models.py](../models.py)
+- formatting, validation, and path helpers: [utils.py](../utils.py)
+- automated tests: [tests/](../tests)
+- native Essentia helper implementation: [native/analysis_helper](../native/analysis_helper)
+
 ## Current Limitation
 
 Key matching is currently tonic-based pitch shifting. It does not perform true harmonic mode conversion between major and minor. Relative and compatible keys are derived from the detected key, so their quality is limited by the rough key detection step.

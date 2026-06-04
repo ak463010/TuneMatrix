@@ -1,0 +1,100 @@
+name: Bug report
+description: Report a reproducible TuneMatrix problem
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please include enough detail for maintainers to reproduce it.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: TuneMatrix crashes when...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TuneMatrix version or commit
+      placeholder: v0.1.0, main, or a commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.11.9"
+    validations:
+      required: true
+  - type: dropdown
+    id: audio-type
+    attributes:
+      label: Audio file type involved
+      options:
+        - wav
+        - flac
+        - mp3
+        - m4a
+        - multiple formats
+        - not audio-specific
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: optional-tools
+    attributes:
+      label: Optional tools/runtime installed
+      description: Check what is available in your environment.
+      options:
+        - label: ffmpeg is installed and available on PATH
+        - label: rubberband is installed and available on PATH
+        - label: Demucs/PyTorch runtime is installed
+        - label: Native analysis helper is installed or bundled
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open TuneMatrix
+        2. Import ...
+        3. Click ...
+        4. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant TuneMatrix bottom-panel logs. Do not include sensitive information.
+      render: text
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: If possible, say whether the issue reproduces with a small generated or public-domain test file.

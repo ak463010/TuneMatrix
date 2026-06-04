@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TuneMatrix
+Comment=Desktop music-processing application
+Exec=/opt/tunematrix/TuneMatrix
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+StartupNotify=true

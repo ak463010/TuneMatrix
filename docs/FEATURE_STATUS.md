@@ -112,3 +112,17 @@ So support is conditional rather than fully self-contained.
 3. Package the app for Windows once the runtime dependencies are stable.
 4. Add configurable export naming templates with preview and validation.
 5. Revisit key matching if exact harmonic mode conversion is a hard requirement.
+
+## Open Contribution Opportunities
+
+Good first or early open-source contribution areas include:
+
+- improve setup notes for macOS and Linux
+- add worker-level tests for cancel behavior and status transitions
+- add tests around export naming and multiple-song processing
+- document more troubleshooting cases for `ffmpeg`, `rubberband`, and Demucs/PyTorch setup
+- add optional Demucs integration tests guarded behind an environment flag
+- improve dependency diagnostics and user-facing install guidance
+- research packaging requirements and dependency-license notices for public binary releases
+
+MVP limitations listed in this file are intentionally documented. Some are expected behavior today rather than bugs, but issue reports and pull requests are welcome when they include a clear workflow, test case, or design proposal.
