@@ -20,8 +20,8 @@ from stage_common import (
 BTBN_BASE_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
 BTBN_CHECKSUMS_URL = f"{BTBN_BASE_URL}/checksums.sha256"
 BTBN_ASSETS = {
-    "windows": "ffmpeg-master-latest-win64-lgpl-shared.zip",
-    "linux": "ffmpeg-master-latest-linux64-lgpl-shared.tar.xz",
+    "windows": "ffmpeg-master-latest-win64-lgpl.zip",
+    "linux": "ffmpeg-master-latest-linux64-lgpl.tar.xz",
 }
 
 # macOS is intentionally skipped until the project chooses a provider with pinned
@@ -70,12 +70,12 @@ Review FFmpeg licensing terms before redistributing modified artifacts.
     provenance = f"""
 Tool: FFmpeg
 Provider: BtbN/FFmpeg-Builds
-Variant: LGPL shared autobuild
+Variant: LGPL autobuild
 Asset: {asset_name}
 Source URL: {BTBN_BASE_URL}/{asset_name}
 Checksum URL: {BTBN_CHECKSUMS_URL}
 SHA256: {archive.sha256}
-License notes: FFmpeg is primarily LGPL, with optional GPL components depending on build variant. This workflow uses the BtbN lgpl-shared variant.
+License notes: FFmpeg is primarily LGPL, with optional GPL components depending on build variant. This workflow uses the BtbN lgpl variant.
 """
     stage_notice(tool_root, notice, provenance)
     return 0
