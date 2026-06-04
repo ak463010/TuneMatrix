@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup Guide
+    url: https://github.com/ak463010/TuneMatrix/blob/main/docs/SETUP.md
+    about: Read installation and dependency setup notes.
+  - name: Troubleshooting Guide
+    url: https://github.com/ak463010/TuneMatrix/blob/main/docs/TROUBLESHOOTING.md
+    about: Check common runtime and dependency problems.
+  - name: Feature Status
+    url: https://github.com/ak463010/TuneMatrix/blob/main/docs/FEATURE_STATUS.md
+    about: See what is implemented, partial, and planned.
+  - name: Security Policy
+    url: https://github.com/ak463010/TuneMatrix/blob/main/SECURITY.md
+    about: Report vulnerabilities privately instead of opening public issues.

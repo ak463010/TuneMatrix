@@ -4,7 +4,7 @@
 
 The repository uses the Python standard library `unittest` runner.
 
-Primary command:
+Primary command on Windows:
 
 ```bat
 run_tests.bat
@@ -16,10 +16,17 @@ That script:
 - sets `QT_QPA_PLATFORM=offscreen`
 - runs all tests under `tests/`
 
-Equivalent direct command:
+Equivalent direct command on Windows PowerShell:
 
 ```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Equivalent command on macOS/Linux:
+
+```bash
+QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
 ```
 
 ## Test Files
@@ -62,7 +69,9 @@ GitHub Actions workflow:
 
 The workflow:
 
-- uses Python 3.11
+- runs on Ubuntu and Windows
+- tests Python 3.11 and 3.12
+- sets `QT_QPA_PLATFORM=offscreen`
 - installs `requirements-test.txt`
 - runs the same unittest discovery command
 
@@ -78,6 +87,10 @@ You may see warnings from `librosa` or `audioread` during the synthetic-audio te
 
 These are currently expected and do not fail the suite.
 
+## Integration Test Scope
+
+The default suite does not run heavy Demucs integration tests or packaged-binary smoke tests. Those should be added behind an explicit environment flag or separate CI job when the runtime and model-download behavior are stable enough for automation.
+
 ## Adding More Tests
 
 Recommended next additions:
@@ -85,3 +98,4 @@ Recommended next additions:
 1. worker-level tests for cancel behavior and status transitions
 2. integration tests around export naming and multiple-song processing
 3. optional Demucs integration tests guarded behind an environment flag
+4. cross-platform setup smoke tests for optional tools such as `ffmpeg` and `rubberband`

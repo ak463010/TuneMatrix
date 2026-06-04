@@ -8,13 +8,26 @@
   - `ffmpeg`
   - `rubberband`
 
+For contribution workflow expectations, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## Python Dependencies
 
 Install the application dependencies from [requirements.txt](../requirements.txt):
 
+Windows PowerShell:
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+macOS/Linux:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
@@ -27,7 +40,9 @@ The current dependency list includes:
 - `soundfile`
 - `pyrubberband`
 - `demucs`
-- `torch`
+- `torch` through the Demucs runtime stack
+
+For lightweight test-only environments, install [requirements-test.txt](../requirements-test.txt) instead of the full runtime stack.
 
 ## External Tools
 
@@ -88,6 +103,17 @@ The startup log intentionally reports only the dependencies used by the current 
 - `torch`
 - `demucs`
 
+## Developer Setup
+
+For local development:
+
+1. Install runtime dependencies from [requirements.txt](../requirements.txt).
+2. Install test dependencies from [requirements-test.txt](../requirements-test.txt) if you are using a lightweight CI-style environment.
+3. Run the tests from [docs/TESTING.md](TESTING.md).
+4. Launch the app with `python main.py` and manually verify UI changes.
+
+Headless test runs should set `QT_QPA_PLATFORM=offscreen` as described in [docs/TESTING.md](TESTING.md).
+
 ## Output Locations
 
 - On Windows, processed temporary files are written under:
@@ -118,3 +144,5 @@ After setup:
 7. Export the result.
 
 Then use [Testing Guide](TESTING.md) to verify the installation.
+
+If setup fails, check [Troubleshooting](TROUBLESHOOTING.md) before opening an issue.

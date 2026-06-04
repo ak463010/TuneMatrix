@@ -1,0 +1,29 @@
+name: Documentation improvement
+description: Report missing, unclear, or incorrect documentation
+title: "[Docs]: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: textarea
+    id: page
+    attributes:
+      label: Affected documentation
+      description: Which page, section, or link needs work?
+      placeholder: docs/SETUP.md, README.md, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is confusing, missing, or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: If you know what should be changed, describe it here.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include OS, Python version, or setup details if this is setup-related.

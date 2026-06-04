@@ -1,6 +1,12 @@
 # TuneMatrix
 
+[![Tests](https://github.com/ak463010/TuneMatrix/actions/workflows/tests.yml/badge.svg)](https://github.com/ak463010/TuneMatrix/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+
 TuneMatrix is a desktop music-processing application built with Python and PySide6.
+
+> **Project status:** TuneMatrix is an MVP/alpha project. Core workflows are implemented and tested, but setup, packaging, and audio-processing behavior may still change before a stable release.
 
 The current codebase focuses on:
 
@@ -133,8 +139,11 @@ run_tests.bat
 Or directly:
 
 ```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+See [docs/TESTING.md](docs/TESTING.md) for cross-platform commands and CI details.
 
 ## Documentation
 
@@ -144,6 +153,7 @@ Or directly:
 - [Native Analysis Helper](docs/NATIVE_ANALYSIS_HELPER.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Feature Status](docs/FEATURE_STATUS.md)
+- [Release Process](docs/RELEASE.md)
 
 ## Project Layout
 
@@ -156,3 +166,29 @@ Or directly:
 - [utils.py](utils.py): formatting, file validation, and helper utilities
 - [native/analysis_helper](native/analysis_helper): C++ helper for native Essentia BPM/key analysis
 - [tests/](tests): automated tests
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [docs/TESTING.md](docs/TESTING.md) before opening a pull request.
+
+Good first contributions include documentation fixes, setup notes for different operating systems, worker-level tests, export-naming tests, and improvements to dependency diagnostics.
+
+## Support
+
+For setup help and troubleshooting, see [SUPPORT.md](SUPPORT.md), [docs/SETUP.md](docs/SETUP.md), and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+Please do not upload copyrighted audio unless you have permission to share it. When possible, reproduce issues with a short generated or public-domain test file.
+
+## Security
+
+Please do not report security vulnerabilities in public issues. See [SECURITY.md](SECURITY.md) for private reporting guidance.
+
+## Releases
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [docs/RELEASE.md](docs/RELEASE.md) for the maintainer release checklist.
+
+## License
+
+TuneMatrix is licensed under the MIT License. See [LICENSE](LICENSE).
+
+Third-party dependencies and external tools are licensed separately. If you distribute packaged builds, review the license obligations for PySide6/Qt, FFmpeg, Rubber Band, Demucs, Torch, `librosa`, `soundfile`, `pyrubberband`, and any bundled helper/runtime tools.

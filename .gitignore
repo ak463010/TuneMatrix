@@ -195,11 +195,16 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+#   and can be added to the global gitignore or merged into this file.
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # Ruff stuff:
 .ruff_cache/
@@ -222,6 +227,30 @@ __marimo__/
 /smoke_test.wav
 /downloader
 /tmp
+*.tmp.wav
+*.tmp.mp3
+*.tmp.flac
+*.tmp.m4a
+
+# Local Claude Code session artifacts
+/.claude/
+
+# Locally staged runtime binaries; keep docs and placeholders tracked
+/tools/analysis-helper/*
+!/tools/analysis-helper/.gitkeep
+!/tools/analysis-helper/bin/
+/tools/analysis-helper/bin/*
+!/tools/analysis-helper/bin/.gitkeep
+/tools/ffmpeg/*
+!/tools/ffmpeg/.gitkeep
+!/tools/ffmpeg/bin/
+/tools/ffmpeg/bin/*
+!/tools/ffmpeg/bin/.gitkeep
+/tools/rubberband/*
+!/tools/rubberband/.gitkeep
+!/tools/rubberband/bin/
+/tools/rubberband/bin/*
+!/tools/rubberband/bin/.gitkeep
 
 # Native helper generated artifacts
 /third_party/essentia-src/build/
