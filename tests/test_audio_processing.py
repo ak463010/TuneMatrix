@@ -9,7 +9,10 @@ from unittest.mock import patch
 
 import numpy as np
 import soundfile as sf
-import torch as th
+try:
+    import torch as th
+except ModuleNotFoundError:  # pragma: no cover - depends on optional CI/runtime stack
+    th = None
 
 from analysis_helper import AnalysisCandidate, AnalysisHelperError, NativeAnalysisResult
 from audio_processing import (
@@ -384,6 +387,7 @@ class AudioProcessingTests(unittest.TestCase):
 
         self.assertIsNone(message)
 
+    @unittest.skipIf(th is None, "PyTorch is not installed")
     def test_separate_song_stems_writes_requested_stems(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -421,6 +425,7 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertTrue((stem_dir / "vocals.wav").exists())
             self.assertFalse((stem_dir / "karaoke_no_vocals.wav").exists())
 
+    @unittest.skipIf(th is None, "PyTorch is not installed")
     def test_separate_song_stems_writes_karaoke_no_vocals_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -457,6 +462,7 @@ class AudioProcessingTests(unittest.TestCase):
             stem_dir = Path(result["stems_dir"])
             self.assertTrue((stem_dir / "karaoke_no_vocals.wav").exists())
 
+    @unittest.skipIf(th is None, "PyTorch is not installed")
     def test_separate_song_stems_filters_multiple_selected_stems(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -581,6 +587,7 @@ class AudioProcessingTests(unittest.TestCase):
             self.assertEqual(exported_path.name, "demo_key_Eb_Minor.wav")
             self.assertTrue(exported_path.exists())
 
+    @unittest.skipIf(th is None, "PyTorch is not installed")
     def test_apply_demucs_model_with_cancel_stops_between_chunks(self) -> None:
         class FakeDemucs(th.nn.Module):
             samplerate = 10
