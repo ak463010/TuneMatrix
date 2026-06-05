@@ -19,11 +19,11 @@ jobs:
         include:
           - os: windows-latest
             artifact-suffix: windows-x64
-            portable-name: windows-x64.zip
+            portable-name: windows-x64-portable.zip
             tool-platform: windows
           - os: macos-latest
-            artifact-suffix: macos
-            portable-name: macos.zip
+            artifact-suffix: macos-arm64
+            portable-name: macos-arm64.zip
             tool-platform: macos
           - os: ubuntu-latest
             artifact-suffix: linux-x64
@@ -148,15 +148,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          Compress-Archive -Path .\dist\TuneMatrix -DestinationPath "release-artifacts\TuneMatrix-$env:RELEASE_VERSION-windows-x64.zip" -Force
+          Compress-Archive -Path .\dist\TuneMatrix -DestinationPath "release-artifacts\TuneMatrix-$env:RELEASE_VERSION-windows-x64-portable.zip" -Force
 
       - name: Create macOS portable archive
         if: runner.os == 'macOS'
         run: |
           if [ -d "dist/TuneMatrix.app" ]; then
-            ditto -c -k --sequesterRsrc --keepParent dist/TuneMatrix.app "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos.zip"
+            ditto -c -k --sequesterRsrc --keepParent dist/TuneMatrix.app "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos-arm64.zip"
           else
-            ditto -c -k --keepParent dist/TuneMatrix "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos.zip"
+            ditto -c -k --keepParent dist/TuneMatrix "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos-arm64.zip"
           fi
 
       - name: Create Linux portable archive
@@ -184,7 +184,7 @@ jobs:
           else
             cp -R dist/TuneMatrix dmg-root/
           fi
-          hdiutil create -volname "TuneMatrix" -srcfolder dmg-root -ov -format UDZO "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos.dmg"
+          hdiutil create -volname "TuneMatrix" -srcfolder dmg-root -ov -format UDZO "release-artifacts/TuneMatrix-${RELEASE_VERSION}-macos-arm64.dmg"
 
       - name: Create Linux Debian package
         if: runner.os == 'Linux'
