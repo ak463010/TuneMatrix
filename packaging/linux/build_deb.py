@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -23,6 +24,14 @@ def copy_tree_contents(source: Path, destination: Path) -> None:
 def make_executable(path: Path) -> None:
     mode = path.stat().st_mode
     path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def debian_version(version: str) -> str:
+    normalized = str(version).strip().lstrip("v") or "0.0.0"
+    normalized = re.sub(r"[^A-Za-z0-9.+:~\-]", ".", normalized)
+    if not normalized[0].isdigit():
+        normalized = f"0.0.0+{normalized}"
+    return normalized
 
 
 def build_package(dist_dir: Path, output_dir: Path, version: str, arch: str) -> Path:
@@ -49,8 +58,9 @@ def build_package(dist_dir: Path, output_dir: Path, version: str, arch: str) -> 
         if path.is_file():
             installed_size_kb += max(1, path.stat().st_size // 1024)
 
+    package_version = debian_version(version)
     control = f"""Package: tunematrix
-Version: {version.lstrip('v')}
+Version: {package_version}
 Section: sound
 Priority: optional
 Architecture: {arch}

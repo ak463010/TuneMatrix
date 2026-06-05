@@ -66,7 +66,10 @@ jobs:
       - name: Install Windows installer tools
         if: runner.os == 'Windows'
         shell: powershell
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          "C:\Program Files (x86)\NSIS" >> $env:GITHUB_PATH
+          "C:\Program Files\NSIS" >> $env:GITHUB_PATH
 
       - name: Install Python dependencies
         run: |
@@ -163,7 +166,14 @@ jobs:
       - name: Create Windows NSIS installer
         if: runner.os == 'Windows'
         shell: powershell
-        run: makensis /DAPP_VERSION="$env:RELEASE_VERSION" /DDIST_DIR="$pwd\dist\TuneMatrix" /DOUTPUT_DIR="$pwd\release-artifacts" packaging\nsis\TuneMatrix.nsi
+        run: |
+          $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) {
+            $candidates = @("C:\Program Files (x86)\NSIS\makensis.exe", "C:\Program Files\NSIS\makensis.exe")
+            $makensis = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $makensis) { throw "makensis.exe was not found after installing NSIS." }
+          & $makensis /DAPP_VERSION="$env:RELEASE_VERSION" /DDIST_DIR="$pwd\dist\TuneMatrix" /DOUTPUT_DIR="$pwd\release-artifacts" packaging\nsis\TuneMatrix.nsi
 
       - name: Create macOS DMG
         if: runner.os == 'macOS'
