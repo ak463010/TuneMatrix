@@ -76,6 +76,7 @@ Description: Desktop music-processing application built with Python and PySide6.
     if package_path.exists():
         package_path.unlink()
     subprocess.run(["dpkg-deb", "--build", str(package_root), str(package_path)], check=True)
+    shutil.rmtree(package_root)
     return package_path
 
 

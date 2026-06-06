@@ -224,7 +224,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TuneMatrix-${{ env.RELEASE_VERSION }}-${{ matrix.artifact-suffix }}
-          path: release-artifacts/*
+          path: release-artifacts/TuneMatrix-*
           if-no-files-found: error
 
       - name: Upload artifacts to GitHub Release
@@ -236,4 +236,9 @@ jobs:
           if ! gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
             gh release create "$RELEASE_VERSION" --title "$RELEASE_VERSION" --notes "TuneMatrix $RELEASE_VERSION release artifacts. See CHANGELOG.md and docs/PACKAGING.md for details."
           fi
-          gh release upload "$RELEASE_VERSION" release-artifacts/* --clobber
+          mapfile -t release_files < <(find release-artifacts -maxdepth 1 -type f -name 'TuneMatrix-*' | sort)
+          if [ "${#release_files[@]}" -eq 0 ]; then
+            echo "No release artifact files found."
+            exit 1
+          fi
+          gh release upload "$RELEASE_VERSION" "${release_files[@]}" --clobber
