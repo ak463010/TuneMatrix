@@ -236,7 +236,10 @@ jobs:
           if ! gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
             gh release create "$RELEASE_VERSION" --title "$RELEASE_VERSION" --notes "TuneMatrix $RELEASE_VERSION release artifacts. See CHANGELOG.md and docs/PACKAGING.md for details."
           fi
-          mapfile -t release_files < <(find release-artifacts -maxdepth 1 -type f -name 'TuneMatrix-*' | sort)
+          release_files=()
+          while IFS= read -r release_file; do
+            release_files+=("$release_file")
+          done < <(find release-artifacts -maxdepth 1 -type f -name 'TuneMatrix-*' | sort)
           if [ "${#release_files[@]}" -eq 0 ]; then
             echo "No release artifact files found."
             exit 1
