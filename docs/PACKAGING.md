@@ -91,21 +91,27 @@ TUNEMATRIX_SMOKE_TEST=1
 
 ## External Tools
 
-The first release-artifact workflow does not download or bundle third-party runtime tools such as `ffmpeg` or `rubberband`.
+Release artifacts stage vetted third-party runtime tools during GitHub Actions builds without committing those binaries to Git.
+
+Current bundled-tool coverage:
+
+- Windows: bundled `ffmpeg` and Rubber Band.
+- macOS: bundled Rubber Band; `ffmpeg` is still expected from `PATH` or local staging until a pinned macOS provider is selected.
+- Linux: bundled `ffmpeg`; Rubber Band is still expected from `PATH` or local staging until Linux source-build bundling is added.
 
 TuneMatrix can find tools from:
 
 - explicit environment variables such as `TUNEMATRIX_FFMPEG` or `TUNEMATRIX_RUBBERBAND`
-- the bundled `tools/<tool>/` layout if users or maintainers stage binaries there
+- the bundled `tools/<tool>/` layout inside release artifacts or local staging
 - the system `PATH`
 
-See [tools/README.md](../tools/README.md) for the expected layout.
+Bundled third-party tools are separately licensed and include `NOTICE.txt` / `PROVENANCE.txt` files in the artifact. See [tools/README.md](../tools/README.md) for the expected layout.
 
 ## Packaged Feature Limitations
 
-- `mp3` and `m4a` import/processing still require `ffmpeg` unless a compatible binary is staged or installed.
-- Higher-quality tempo/key processing still prefers `rubberband` unless a compatible binary is staged or installed.
-- Demucs stem separation in packaged binaries is experimental. Users who need reliable Demucs/Torch behavior should run TuneMatrix from source until packaged stem separation is hardened and verified for each platform.
+- `mp3` and `m4a` import/processing requires `ffmpeg`; Windows and Linux release artifacts currently bundle it, while macOS still needs a system or locally staged `ffmpeg`.
+- Higher-quality tempo/key processing prefers `rubberband`; Windows and macOS release artifacts currently bundle it, while Linux still needs a system or locally staged Rubber Band.
+- Standard packaged binaries intentionally exclude the heavy Demucs/Torch/TorchCodec stack to stay under GitHub release asset limits. Users who need stem separation should run TuneMatrix from source until a separate full/stems build is added and verified.
 
 ## Unsigned Build Warnings
 

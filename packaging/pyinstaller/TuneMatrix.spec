@@ -36,10 +36,6 @@ for package_name in (
     "librosa",
     "soundfile",
     "pyrubberband",
-    "demucs",
-    "torch",
-    "torchaudio",
-    "torchcodec",
 ):
     hiddenimports += collect_if_available(package_name, collect_submodules)
 
@@ -47,10 +43,6 @@ datas = []
 for package_name in (
     "librosa",
     "soundfile",
-    "demucs",
-    "torch",
-    "torchaudio",
-    "torchcodec",
 ):
     datas += collect_if_available(package_name, collect_data_files)
 
@@ -59,9 +51,6 @@ datas += collect_staged_tool_files()
 binaries = []
 for package_name in (
     "soundfile",
-    "torch",
-    "torchaudio",
-    "torchcodec",
 ):
     binaries += collect_if_available(package_name, collect_dynamic_libs)
 
@@ -74,7 +63,12 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        "demucs",
+        "torch",
+        "torchaudio",
+        "torchcodec",
+    ],
     noarchive=False,
     optimize=0,
 )
