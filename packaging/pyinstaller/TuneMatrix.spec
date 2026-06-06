@@ -36,6 +36,7 @@ for package_name in (
     "librosa",
     "soundfile",
     "pyrubberband",
+    "demucs",
 ):
     hiddenimports += collect_if_available(package_name, collect_submodules)
 
@@ -43,6 +44,7 @@ datas = []
 for package_name in (
     "librosa",
     "soundfile",
+    "demucs",
 ):
     datas += collect_if_available(package_name, collect_data_files)
 
@@ -63,12 +65,7 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        "demucs",
-        "torch",
-        "torchaudio",
-        "torchcodec",
-    ],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )

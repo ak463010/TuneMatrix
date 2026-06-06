@@ -111,7 +111,7 @@ Bundled third-party tools are separately licensed and include `NOTICE.txt` / `PR
 
 - `mp3` and `m4a` import/processing requires `ffmpeg`; Windows and Linux release artifacts currently bundle it, while macOS still needs a system or locally staged `ffmpeg`.
 - Higher-quality tempo/key processing prefers `rubberband`; Windows and macOS release artifacts currently bundle it, while Linux still needs a system or locally staged Rubber Band.
-- Standard packaged binaries intentionally exclude the heavy Demucs/Torch/TorchCodec stack to stay under GitHub release asset limits. Users who need stem separation should run TuneMatrix from source until a separate full/stems build is added and verified.
+- Release artifacts include the Demucs/Torch stem-separation stack so all application features remain available. Linux release builds use CPU-only PyTorch wheels to avoid bundling CUDA libraries and to stay under GitHub's 2 GiB per-asset release limit.
 
 ## Unsigned Build Warnings
 
